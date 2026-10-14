@@ -5,3 +5,4 @@ runtime/
 *.log
 fresh-test/
 docs/laragon-analizi.md
+dist/
