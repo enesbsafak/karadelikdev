@@ -1,0 +1,14 @@
+# Biçim:
+; Program Adı: autorun KOMUTLAR env_file=DOSYA_YOLU pwd=ÇALIŞMA_DİZİNİ DEGISKEN1=deger DEGISKEN2="boşluklu değer"
+
+# Açıklama:
+; Program Adı: Menü > KaradelikDev > Procfile altında görünür (boşluk içerebilir)
+; autorun: KaradelikDev açılırken komut otomatik çalışır
+; KOMUTLAR: Tek komut veya & ile ayrılmış komutlar
+; env_file: Ortam değişkenlerini dosyadan oku (DEGISKEN=deger satırları)
+; pwd: Komutların çalışacağı dizin (kök dizine göre göreli olabilir)
+
+# Örnekler:
+; Vite: npm run dev pwd=www/projem
+; Kuyruk: autorun php artisan queue:work pwd=www/projem
+------------------------------------------------------------------------------

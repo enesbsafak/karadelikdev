@@ -1,0 +1,7 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+runtime/
+*.log
+fresh-test/
+docs/laragon-analizi.md

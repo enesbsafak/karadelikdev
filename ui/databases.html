@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Veritabanı yöneticisi</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-esc-close="1">
+<div class="page">
+  <div class="conn">
+    <div class="conn-title">
+      <span class="dot" id="dbDot"></span>
+      <strong id="dbVersion">MySQL</strong>
+      <span class="spacer"></span>
+      <button class="btn" id="btnPma">phpMyAdmin</button>
+      <button class="btn" id="btnAdminer">Adminer</button>
+      <button class="btn" id="btnHeidi">HeidiSQL</button>
+    </div>
+    <div class="notice hidden" id="notRunning">
+      <span data-i18n="db.not_running">MySQL çalışmıyor.</span>
+      <button class="btn primary" id="btnStart" data-i18n="btn.start">Başlat</button>
+    </div>
+    <div class="conn-grid">
+      <label data-i18n="db.host">Sunucu</label><code id="host"></code><button class="btn icon-copy" data-copy="host" data-i18n="btn.copy">Kopyala</button>
+      <label data-i18n="db.port">Port</label><code id="port"></code><span></span>
+      <label data-i18n="db.user">Kullanıcı</label><code id="user"></code><button class="btn icon-copy" data-copy="user" data-i18n="btn.copy">Kopyala</button>
+      <label data-i18n="db.password">Parola</label>
+      <div class="pw">
+        <code id="password"></code>
+        <button class="btn" id="btnShow" data-i18n="db.show">Göster</button>
+      </div>
+      <div class="row-actions">
+        <button class="btn" data-copy="password" data-i18n="btn.copy">Kopyala</button>
+        <button class="btn" id="btnChange" data-i18n="db.change">Değiştir</button>
+        <button class="btn" id="btnRemovePw" data-i18n="db.remove_pw">Parolayı kaldır</button>
+        <button class="btn danger" id="btnReset" data-i18n="db.reset">Sıfırla</button>
+      </div>
+    </div>
+    <form class="inline-form hidden" id="pwForm">
+      <input class="field grow" id="newPw" type="text" autocomplete="off" spellcheck="false" data-i18n-ph="label.new_password">
+      <button class="btn" type="button" id="genPw" data-i18n="db.generate">Üret</button>
+      <button class="btn primary" type="submit" data-i18n="btn.save">Kaydet</button>
+      <button class="btn" type="button" id="cancelPw" data-i18n="btn.cancel">Vazgeç</button>
+    </form>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="dbs" data-i18n="db.databases">Veritabanları</button>
+    <button class="tab" data-tab="users" data-i18n="db.users">Kullanıcılar</button>
+    <button class="tab" data-tab="backups" data-i18n="db.backups">Yedekler</button>
+  </nav>
+
+  <section class="content" id="tab-dbs">
+    <form class="inline-form" id="createDb">
+      <input class="field grow" id="newDb" autocomplete="off" spellcheck="false" data-i18n-ph="label.db_name">
+      <button class="btn primary" type="submit" data-i18n="db.create">Oluştur</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="restoreFile" data-i18n="db.restore_file">.sql yükle</button>
+      <button class="btn" type="button" id="backupAll" data-i18n="menu.backup_all">Tümünü yedekle</button>
+    </form>
+    <form class="inline-form hidden" id="restoreForm">
+      <span class="ellipsis" id="restorePath"></span>
+      <input class="field" id="restoreDb" autocomplete="off" spellcheck="false" data-i18n-ph="db.restore_target">
+      <button class="btn primary" type="submit" data-i18n="db.restore">Geri yükle</button>
+      <button class="btn" type="button" id="restoreCancel" data-i18n="btn.cancel">Vazgeç</button>
+    </form>
+    <table class="grid"><thead><tr>
+      <th data-i18n="db.name">Ad</th><th class="num" data-i18n="db.tables">Tablo</th><th class="num" data-i18n="db.size">Boyut</th><th></th>
+    </tr></thead><tbody id="dbRows"></tbody></table>
+  </section>
+
+  <section class="content hidden" id="tab-users">
+    <form class="inline-form" id="createUser">
+      <input class="field" id="uName" autocomplete="off" spellcheck="false" data-i18n-ph="db.user">
+      <input class="field" id="uPass" autocomplete="off" spellcheck="false" data-i18n-ph="db.password">
+      <button class="btn" type="button" id="uGen" data-i18n="db.generate">Üret</button>
+      <select class="field" id="uDb"></select>
+      <button class="btn primary" type="submit" data-i18n="db.create">Oluştur</button>
+    </form>
+    <div class="hint" style="margin:0 0 10px" data-i18n="db.user_hint"></div>
+    <table class="grid"><thead><tr>
+      <th data-i18n="db.user">Kullanıcı</th><th data-i18n="db.auth">Kimlik doğrulama</th><th data-i18n="db.databases">Veritabanları</th><th></th>
+    </tr></thead><tbody id="userRows"></tbody></table>
+  </section>
+
+  <section class="content hidden" id="tab-backups">
+    <div class="inline-form">
+      <span class="ellipsis hint-line" id="backupDir"></span>
+      <span class="spacer"></span>
+      <button class="btn" id="openBackupDir" data-i18n="btn.open">Aç</button>
+    </div>
+    <table class="grid"><thead><tr>
+      <th data-i18n="db.file">Dosya</th><th data-i18n="db.target">Kapsam</th><th class="num" data-i18n="db.size">Boyut</th><th data-i18n="db.date">Tarih</th><th></th>
+    </tr></thead><tbody id="backupRows"></tbody></table>
+  </section>
+
+  <div class="footer">
+    <span class="note" id="msg"></span>
+    <button class="btn" id="refresh" data-i18n="db.refresh">Yenile</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/databases.js"></script>
+</body>
+</html>

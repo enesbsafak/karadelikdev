@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Tercihler</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-esc-close="1">
+<div class="page">
+  <nav class="tabs">
+    <button class="tab active" data-tab="general" data-i18n="prefs.general">Genel</button>
+    <button class="tab" data-tab="services" data-i18n="prefs.services">Servisler ve Portlar</button>
+    <button class="tab" data-tab="advanced" data-i18n="prefs.advanced">Gelişmiş</button>
+  </nav>
+
+  <section class="content" id="tab-general">
+    <label class="check"><input type="checkbox" id="run_at_startup"><span data-i18n="prefs.run_at_startup"></span></label>
+    <label class="check"><input type="checkbox" id="run_minimized"><span data-i18n="prefs.run_minimized"></span></label>
+    <label class="check"><input type="checkbox" id="auto_start"><span data-i18n="prefs.auto_start"></span></label>
+    <hr class="sep">
+    <div class="row"><label class="lbl" data-i18n="prefs.language">Dil</label><select class="field grow" id="language"></select></div>
+    <div class="row">
+      <label class="lbl" data-i18n="prefs.document_root">Document Root</label>
+      <input class="field grow" id="document_root">
+      <button class="btn" data-pick="document_root">…</button>
+    </div>
+    <div class="row">
+      <label class="lbl" data-i18n="prefs.data_dir">Veri dizini</label>
+      <input class="field grow" id="data_dir">
+      <button class="btn" data-pick="data_dir">…</button>
+    </div>
+    <div class="hint" style="margin-left:160px" data-i18n="prefs.data_dir_hint"></div>
+    <hr class="sep">
+    <label class="check"><input type="checkbox" id="auto_vhosts"><span data-i18n="prefs.auto_vhosts"></span></label>
+    <div class="hint" data-i18n="prefs.auto_vhosts_hint"></div>
+    <label class="check"><input type="checkbox" id="manage_hosts"><span data-i18n="prefs.manage_hosts"></span></label>
+    <div class="hint" data-i18n="prefs.manage_hosts_hint"></div>
+    <div class="row"><label class="lbl" data-i18n="prefs.hostname">Hostname</label><input class="field grow" id="hostname_format"></div>
+    <div class="row"><label class="lbl" data-i18n="prefs.ignore">Yok say</label><input class="field grow" id="vhost_ignore"></div>
+  </section>
+
+  <section class="content hidden" id="tab-services">
+    <div class="grid-svcs" id="svcGrid"></div>
+    <hr class="sep">
+    <div class="row"><label class="lbl" data-i18n="prefs.php_workers">php-cgi</label><input class="field small" type="number" min="1" max="32" id="php_upstream"></div>
+    <div class="row"><label class="lbl" data-i18n="prefs.mailpit_ui">Mailpit UI</label><input class="field small" type="number" id="mailpit_ui_port"></div>
+  </section>
+
+  <section class="content hidden" id="tab-advanced">
+    <label class="check"><input type="checkbox" id="auto_backup"><span data-i18n="prefs.auto_backup"></span></label>
+    <div class="row" style="margin-left:23px">
+      <label class="lbl" data-i18n="prefs.every_hours">Her (saat)</label><input class="field small" type="number" min="1" id="backup_interval">
+      <label data-i18n="prefs.keep" style="color:var(--muted)">Saklanacak</label><input class="field small" type="number" min="1" id="backup_keep">
+    </div>
+    <label class="check"><input type="checkbox" id="auto_update"><span data-i18n="prefs.auto_update"></span></label>
+    <hr class="sep">
+    <div class="row">
+      <label class="lbl" data-i18n="prefs.terminal">Terminal</label>
+      <select class="field grow" id="terminal">
+        <option value="auto">Otomatik (Windows Terminal → Cmder → cmd)</option>
+        <option value="wt">Windows Terminal</option>
+        <option value="cmd">cmd</option>
+        <option value="powershell">PowerShell</option>
+        <option value="cmder">Cmder</option>
+      </select>
+    </div>
+    <div class="row">
+      <label class="lbl" data-i18n="prefs.editor">Editör</label>
+      <input class="field grow" id="editor">
+      <button class="btn" id="pickEditor">…</button>
+    </div>
+    <div class="row">
+      <label class="lbl" data-i18n="prefs.tunnel">Tünel</label>
+      <select class="field grow" id="tunnel">
+        <option value="cloudflared">Cloudflare Tunnel (cloudflared)</option>
+        <option value="ngrok">ngrok</option>
+      </select>
+    </div>
+  </section>
+
+  <div class="footer">
+    <span class="note" data-i18n="prefs.restart_note"></span>
+    <span class="note hidden" id="err" style="color:var(--err)"></span>
+    <button class="btn" id="cancel" data-i18n="btn.cancel">Vazgeç</button>
+    <button class="btn primary" id="save" data-i18n="btn.save">Kaydet</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/prefs.js"></script>
+</body>
+</html>

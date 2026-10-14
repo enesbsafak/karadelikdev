@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>KaradelikDev</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="page">
+  <div class="setup-head">
+    <img src="img/logo.png" alt="" width="44" height="44">
+    <div>
+      <h1 data-i18n="setup.title">İlk kurulum</h1>
+      <div class="hint-line" id="root"></div>
+    </div>
+  </div>
+
+  <section class="content" id="form">
+    <div class="notice hidden" id="spaceWarn"><span data-i18n="setup.space_warning"></span></div>
+    <div class="notice hidden" id="busyWarn"><span id="busyText"></span></div>
+
+    <h2 data-i18n="setup.options">Seçenekler</h2>
+    <label class="check"><input type="checkbox" id="auto_vhosts"><span data-i18n="prefs.auto_vhosts"></span></label>
+    <div class="hint" data-i18n="setup.auto_vhosts_hint"></div>
+    <label class="check"><input type="checkbox" id="run_at_startup"><span data-i18n="prefs.run_at_startup"></span></label>
+    <label class="check"><input type="checkbox" id="context_menu"><span data-i18n="setup.context_menu"></span></label>
+    <div class="hint" data-i18n="setup.context_menu_hint"></div>
+    <label class="check"><input type="checkbox" id="add_path"><span data-i18n="setup.add_path"></span></label>
+    <div class="hint" data-i18n="setup.add_path_hint"></div>
+
+    <h2 data-i18n="setup.components">Bileşenler</h2>
+    <label class="check hidden" id="laragonRow"><input type="checkbox" id="import_laragon"><span id="laragonText"></span></label>
+    <label class="check" id="vcRow"><input type="checkbox" id="install_vc"><span id="vcText"></span></label>
+    <div class="pkg-list" id="packages"></div>
+  </section>
+
+  <section class="content hidden" id="progressView">
+    <h2 data-i18n="setup.installing_title">Kuruluyor</h2>
+    <div class="progress wide indeterminate" id="bar"><div></div></div>
+    <div class="hint-line" id="current"></div>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <div class="footer">
+    <span class="note" id="summary"></span>
+    <button class="btn" id="skip" data-i18n="setup.skip">Atla</button>
+    <button class="btn primary" id="install" data-i18n="setup.install">Kur</button>
+    <button class="btn primary hidden" id="finish" data-i18n="setup.finish">Bitir</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/setup.js"></script>
+</body>
+</html>
