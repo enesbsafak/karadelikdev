@@ -43,6 +43,7 @@ jobs:
           netstat -ano | Select-String ':80 |:443 ' | Select-String LISTENING
           exit 0
       - name: Uygulamayı başlat
+        id: app
         shell: pwsh
         run: |
           Start-Process -FilePath src-tauri\target\debug\karadelikdev.exe
@@ -50,7 +51,7 @@ jobs:
       - name: Uçtan uca test
         run: bash tests/functest.sh
       - name: Ek servisler (PostgreSQL, MongoDB, MariaDB)
-        if: always()
+        if: always() && steps.app.outcome == 'success'
         run: bash tests/functest-extra-services.sh
       - name: Günlükler
         if: always()
@@ -94,9 +95,12 @@ jobs:
       # kaynaktan derleme CI süresini aşar. Hazır paket yoksa MariaDB bölümü atlanır (KD_SKIP_MARIADB).
       - name: Homebrew MariaDB
         run: |
+          set -o pipefail
           TAG=$(brew ruby -e 'puts Utils::Bottles.tag' | tail -1)
           if brew info --json=v2 mariadb@11.8 | python3 -c "import json,sys; sys.exit(0 if '$TAG' in json.load(sys.stdin)['formulae'][0]['bottle']['stable']['files'] else 1)"; then
-            brew install mariadb@11.8
+            if ! brew install mariadb@11.8 2>&1 | tee "$RUNNER_TEMP/mariadb-brew.log"; then
+              echo "KD_SKIP_MARIADB=brew install mariadb@11.8 başarısız ($TAG): $(tail -1 "$RUNNER_TEMP/mariadb-brew.log")" >> "$GITHUB_ENV"
+            fi
           else
             echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok ($TAG)" >> "$GITHUB_ENV"
           fi
@@ -108,6 +112,7 @@ jobs:
       - name: Kurulum (Homebrew paketlerini bağla, phpMyAdmin/Composer indir)
         run: ./src-tauri/target/debug/karadelikdev --setup "php-8.5,php-8.3,apache,nginx,mysql-8.4,redis,memcached,mailpit,composer,phpmyadmin,adminer"
       - name: Uygulamayı başlat
+        id: app
         run: |
           nohup ./src-tauri/target/debug/karadelikdev > "$RUNNER_TEMP/gui.log" 2>&1 &
           sleep 15
@@ -115,7 +120,7 @@ jobs:
       - name: Uçtan uca test
         run: bash tests/functest.sh
       - name: Ek servisler (PostgreSQL, MongoDB, MariaDB)
-        if: always()
+        if: always() && steps.app.outcome == 'success'
         run: bash tests/functest-extra-services.sh
       - name: Paket (.app + .dmg)
         if: always()
