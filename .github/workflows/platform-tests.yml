@@ -5,7 +5,9 @@ name: Platform testleri
 
 on:
   push:
-    branches: [macos]
+    branches: [main, macos]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
