@@ -3,7 +3,23 @@
 Hedef: KaradelikDev'in Windows'taki özelliklerinin tamamı macOS'ta da çalışsın; 1.3.0 iki platform için birlikte yayınlansın.
 Kod `macos` dalında. Bu belge durumu, kararları ve sıradaki adımları tutar.
 
-## Durum (Mac'te, 15 Ekim 2026)
+## Durum (15 Ekim 2026): 1.3.0 iki platform için yayımlandı
+
+GitHub Actions (`.github/workflows/platform-tests.yml`, `macos` dalındaki her push'ta) — çalışma 38786660110, hepsi yeşil:
+
+| Koşucu | Birim | Uçtan uca (`functest.sh`) | Ek servisler | Paket |
+|---|---|---|---|---|
+| Windows (windows-latest) | geçti | 78/78 | 12/12 (PostgreSQL 18, MongoDB 8, MariaDB 11.8) | — |
+| macOS Intel (macos-15-intel, Sequoia) | geçti | 79/79 | 8/8 (MariaDB: Homebrew'da Sequoia/Intel hazır paketi yok, atlandı) | x86_64 `.app` + `.dmg` |
+| macOS Apple Silicon (macos-latest, Tahoe) | geçti | 79/79 | 12/12 | arm64 `.app` + `.dmg` |
+
+CI'ın Windows'ta bulduğu ve düzeltilen önceden var olan sorunlar: katalogdaki msys2 Redis derlemesi `/d/...` yolunu tanımıyordu
+(yapılandırma yolu artık göreli), `initdb` önceden oluşturulmuş veri klasörünün izinlerini değiştiremeyebiliyordu (klasörü artık
+initdb oluşturur), MongoDB'nin ilk açılışı 20 sn'yi aşabiliyordu (60 sn). macOS'ta bulunan: `localhost` ile bağlanan PHP'nin
+Homebrew'un `/tmp/mysql.sock`'una gitmesi (artık `mysqli/pdo_mysql.default_socket` KaradelikDev MySQL'i), Homebrew'un formülü
+kurup bağlayamadığında kurulumun başarısız sayılması (artık `opt/<formül>` varsa kullanılır).
+
+### Mac'te yerel doğrulama
 
 - `cargo check`, `cargo test --lib` (22 test) ve `npm run build` (ad-hoc imzalı `.app` 9,7 MB + `.dmg` 5,4 MB) macOS'ta
   (Apple Silicon, macOS 27) geçiyor. Windows hedefi Mac'ten `cargo check --target x86_64-pc-windows-gnu --tests` ile
@@ -128,11 +144,9 @@ bash tests/functest.sh && bash tests/functest-extra-services.sh
 
 ## Yapılacaklar
 
-1. **Windows'ta derleme ve tam regresyon testi** (Windows Sandbox önerilir): `cargo test --lib`, `bash tests/functest.sh`,
-   `bash tests/functest-extra-services.sh`. Taşınan modüller (`winenv`, `acl`, `winservice`) ve ortak koda eklenen platform
-   dalları (PATH birleştirme, fcgi düzeltmesi, `Svc::exe_name`, `php::cgi_exe_for`) Windows'ta derlenip doğrulanmalı.
+1. Windows'ta CI'ın ölçemediği kurulum akışı: NSIS kurulum programıyla 1.2.1'den 1.3.0'a uygulama içi güncelleme (UAC).
 2. İmza kararı (Developer ID + notarization veya ad-hoc). Karar verilirse `tauri.macos.conf.json` `signingIdentity` ve
    notarization ortam değişkenleri (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
 3. Gerçek bir Intel Mac'te (veya Rosetta ile) çalıştırma ve ilk gerçek GitHub sürümünden (1.3.0 → sonraki) güncelleme.
-4. Sürüm 1.3.0: `Cargo.toml`, `package.json`, `tauri.conf.json` sürümü ve `docs/releases/1.3.0.md`; Windows'ta
-   `scripts\release.ps1`, Mac'te `bash scripts/release.sh --universal`; ikisinin `dist` çıktısı birlikte yayınlanır.
+4. Sonraki sürümler: sürüm numarası + `docs/releases/<sürüm>.md`; Actions → **Windows sürüm paketi** (veya Windows'ta
+   `scripts\release.ps1`) → `windows-dist` Mac'te `dist/`'e → `bash scripts/release.sh --universal` → önce `main` push, sonra `gh release create`.
