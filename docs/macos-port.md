@@ -113,6 +113,11 @@ Homebrew öneki/Cellar tespiti, `.app` paketi tespiti, Finder'dan açılınca ek
 - macOS: `mysqladmin shutdown` MySQL 8.4 günlüğüne "via user signal" yazar; bu normal kapanıştır.
 - macOS: aynı binary'yi `brew services` de çalıştırabileceği için "bizim süreç" denetimi komut satırında/çalışma dizininde kök yolunu da arar
   (`util::pid_mentions_root`); servisler kökteki `tmp/` çalışma diziniyle başlar.
+- Güncelleyici, kurulumsuz (taşınabilir) Windows sürümünden geçişte bulunduğu kökü `DataRoot` olarak kaydeder; 1.3.0'da bu,
+  `KARADELIK_ROOT` ile çalışan bir kopyadan güncellemede de oluyordu (macOS'ta `config.json`'a geçici test klasörü yazıldı).
+  Artık yalnız Windows'ta ve ortam değişkeni yokken kaydedilir (`updater::adopt_portable_root`).
+- Test sırasında `.dmg` oluşturan Tauri betiği Finder penceresi açar; derleme çıktısındaki `.app`'ler Spotlight'ta ayrı uygulama
+  olarak görünür. Testten sonra `src-tauri/target/**/bundle/macos/*.app` silinip `lsregister -u` ile kayıttan çıkarılmalı.
 - Yayın sırası: önce `main` push, sonra `gh release create` (yoksa etiket eski commit'e bağlanır).
 - Commit'lerde yapay zekâ imzası/ortak yazar satırı kullanılmaz; yazar `enesbsafak` (GitHub noreply e-postası).
 - `docs/laragon-analizi.md` yalnız yerelde kalır, depoya girmez.

@@ -334,9 +334,16 @@ fn relaunch(setup: Option<&Path>, resume: bool) -> Result<()> {
     std::process::exit(0);
 }
 
+/// Taşınabilir (Windows, kurulumsuz) sürümden geçişte bulunulan klasör veri klasörü olarak kaydedilir. `KARADELIK_ROOT`
+/// ile verilen kök (testler, betikler) geçicidir ve kaydedilmez; macOS'ta taşınabilir sürüm yoktur.
+fn adopt_portable_root() -> bool {
+    let env_root = std::env::var("KARADELIK_ROOT").map(|r| !r.trim().is_empty()).unwrap_or(false);
+    cfg!(windows) && !paths().installed && !env_root
+}
+
 /// İndirilmiş setup ile güncelle. Taşınabilir kurulumdan geçişte mevcut klasör veri klasörü olarak kaydedilir.
 pub fn install_and_restart(setup: &Path) -> Result<()> {
-    if !paths().installed {
+    if adopt_portable_root() {
         crate::paths::set_data_root(&paths().root)?;
     }
     log(&format!("KaradelikDev {} kuruluyor: {}", current_version(), setup.display()));
