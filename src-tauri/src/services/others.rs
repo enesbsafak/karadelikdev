@@ -182,8 +182,29 @@ pub fn redis_conf() -> PathBuf {
     paths().etc().join("redis").join("redis.conf")
 }
 
-/// Cygwin/MSYS2 derlemeleri POSIX yol bekler.
-fn redis_path(p: &std::path::Path, exe_dir: &std::path::Path) -> String {
+/// `base`'ten `target`'a göreli yol (`../../etc/redis/redis.conf`); farklı sürücüdeyse `None`.
+fn relative_to(base: &std::path::Path, target: &std::path::Path) -> Option<String> {
+    use std::path::Component;
+    let b: Vec<Component> = base.components().collect();
+    let t: Vec<Component> = target.components().collect();
+    let common = b.iter().zip(&t).take_while(|(x, y)| x == y).count();
+    if common == 0 || matches!(b[common - 1], Component::Prefix(_)) {
+        return None;
+    }
+    let mut parts: Vec<String> = vec!["..".into(); b.len() - common];
+    parts.extend(t[common..].iter().map(|c| c.as_os_str().to_string_lossy().to_string()));
+    Some(parts.join("/"))
+}
+
+/// Cygwin/MSYS2 derlemeleri POSIX yol bekler. Tek başına dağıtılan msys-2.0.dll'de (fstab yok) sürücü öneki
+/// `/cygdrive`'dır (redis-windows README'si); göreli yol iki çalışma ortamında da aynı çözülür, önce o denenir.
+fn redis_path(p: &std::path::Path, exe_dir: &std::path::Path, cwd: &std::path::Path) -> String {
+    let posix_runtime = exe_dir.join("cygwin1.dll").exists() || exe_dir.join("msys-2.0.dll").exists();
+    if posix_runtime {
+        if let Some(rel) = relative_to(cwd, p) {
+            return rel;
+        }
+    }
     let f = fwd(p);
     let posix = |prefix: &str| {
         let mut ch = f.chars();
@@ -192,10 +213,8 @@ fn redis_path(p: &std::path::Path, exe_dir: &std::path::Path) -> String {
             _ => f.clone(),
         }
     };
-    if exe_dir.join("cygwin1.dll").exists() {
+    if posix_runtime {
         posix("/cygdrive")
-    } else if exe_dir.join("msys-2.0.dll").exists() {
-        posix("")
     } else {
         f.clone()
     }
@@ -215,7 +234,7 @@ pub fn redis_start() -> Result<()> {
         )?;
     }
     let args = vec![
-        redis_path(&redis_conf(), &exe_dir),
+        redis_path(&redis_conf(), &exe_dir, &data),
         "--port".into(),
         port.to_string(),
         "--bind".into(),
@@ -292,6 +311,19 @@ pub fn phpserver_start() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::set_hba_method;
+
+    #[test]
+    fn relative_paths() {
+        use super::relative_to;
+        use std::path::Path;
+        assert_eq!(relative_to(Path::new("/k/data/redis"), Path::new("/k/etc/redis/redis.conf")).as_deref(), Some("../../etc/redis/redis.conf"));
+        assert_eq!(relative_to(Path::new("/k/data"), Path::new("/k/data/x.conf")).as_deref(), Some("x.conf"));
+        #[cfg(windows)]
+        {
+            assert_eq!(relative_to(Path::new(r"C:\k\data\redis"), Path::new(r"C:\k\etc\r.conf")).as_deref(), Some("../../etc/r.conf"));
+            assert_eq!(relative_to(Path::new(r"D:\data"), Path::new(r"C:\k\r.conf")), None);
+        }
+    }
 
     #[test]
     fn hba_methods() {
