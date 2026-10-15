@@ -159,6 +159,13 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
         managed.push(("curl.cainfo", format!("\"{}\"", fwd(&cacert))));
         managed.push(("openssl.cafile", format!("\"{}\"", fwd(&cacert))));
     }
+    // macOS: "localhost" ile bağlanan PHP uygulamaları (WordPress varsayılanı) MySQL'e Unix soketiyle bağlanır;
+    // derlemedeki varsayılan /tmp/mysql.sock başka bir MySQL'e (ör. brew services) gidebilir
+    if cfg!(target_os = "macos") {
+        let sock = format!("\"{}\"", fwd(&crate::services::mysql::socket_path()));
+        managed.push(("mysqli.default_socket", sock.clone()));
+        managed.push(("pdo_mysql.default_socket", sock));
+    }
     if let Some(mp) = versions::exe("mailpit", &crate::platform::exe("mailpit")) {
         let port = settings().svc("mailpit").port;
         managed.push(("sendmail_path", format!("\"{} sendmail --smtp-addr=127.0.0.1:{port}\"", fwd(&mp))));
