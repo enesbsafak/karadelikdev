@@ -54,3 +54,4 @@ waitfor 60 'tail -n +$((N+1)) $R/logs/karadelik.log | grep -q "MySQL: $CUR" && p
 do_ stopall; waitfor 40 '! port $AP && ! port $MP' && ok "Tümünü durdur" || bad "stopall" "açık port"
 echo; echo "SONUÇ: $P başarılı, $F başarısız"
 for f in "${FAILS[@]}"; do echo "  - $f"; done
+[ "$F" -eq 0 ]

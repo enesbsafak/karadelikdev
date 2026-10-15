@@ -1,0 +1,117 @@
+# Platform testleri: Windows ve macOS (Intel + Apple Silicon) üzerinde birim testleri, derleme, gerçek paketlerle
+# kurulum ve uçtan uca testler (tests/functest.sh, tests/functest-extra-services.sh). Uygulama testler boyunca açıktır;
+# testler ona `karadelikdev do <eylem>` ile komut gönderir.
+name: Platform testleri
+
+on:
+  push:
+    branches: [macos]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Birim testleri
+        run: cd src-tauri && cargo test --lib
+      - name: Derleme
+        run: cd src-tauri && cargo build
+      - name: Ayarlar (SSL açık, ilk kurulum geçildi)
+        run: |
+          mkdir -p runtime/usr
+          printf '[preferences]\r\nFirstRun=0\r\n[service.apache]\r\nEnabled=1\r\nPort=80\r\nSSL=1\r\nSSLPort=443\r\n' > runtime/usr/karadelik.ini
+      - name: Kurulum (paketleri indir)
+        run: ./src-tauri/target/debug/karadelikdev.exe --setup php-8.4,php-8.3,apache-2.4.69,nginx-1.30.6,mysql-8.4,redis-8.10,memcached-1.6.8,node-24.22,composer,mailpit,phpmyadmin,adminer
+      - name: Uygulamayı başlat
+        shell: pwsh
+        run: |
+          Start-Process -FilePath src-tauri\target\debug\karadelikdev.exe
+          Start-Sleep -Seconds 15
+      - name: Uçtan uca test
+        run: bash tests/functest.sh
+      - name: Ek servisler (PostgreSQL, MongoDB, MariaDB)
+        if: always()
+        run: bash tests/functest-extra-services.sh
+      - name: Günlükler
+        if: always()
+        run: |
+          for f in runtime/logs/karadelik.log runtime/logs/apache_error.log runtime/logs/mysqld.log runtime/logs/nginx_error.log; do
+            [ -f "$f" ] && { echo "== $f"; tail -60 "$f"; }
+          done
+          exit 0
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 100
+    env:
+      KARADELIK_ROOT: ${{ github.workspace }}-kd
+      KARADELIK_HOSTS: ${{ github.workspace }}-hosts
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_ENV_HINTS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Mimari
+        run: uname -m && sw_vers
+      - name: Birim testleri
+        run: cd src-tauri && cargo test --lib
+      - name: Derleme
+        run: cd src-tauri && cargo build
+      - name: Homebrew paketleri
+        run: brew install httpd php php@8.3 nginx mysql@8.4 redis memcached mailpit postgresql@17
+      - name: Ayarlar (SSL açık, ilk kurulum geçildi, sahte hosts dosyası)
+        run: |
+          mkdir -p "$KARADELIK_ROOT/usr"
+          printf '127.0.0.1 localhost\n' > "$KARADELIK_HOSTS"
+          printf '[preferences]\nFirstRun=0\n[service.apache]\nEnabled=1\nPort=80\nSSL=1\nSSLPort=443\n' > "$KARADELIK_ROOT/usr/karadelik.ini"
+      - name: Kurulum (Homebrew paketlerini bağla, phpMyAdmin/Composer indir)
+        run: ./src-tauri/target/debug/karadelikdev --setup "php-8.5,php-8.3,apache,nginx,mysql-8.4,redis,memcached,mailpit,composer,phpmyadmin,adminer"
+      - name: Uygulamayı başlat
+        run: |
+          nohup ./src-tauri/target/debug/karadelikdev > "$RUNNER_TEMP/gui.log" 2>&1 &
+          sleep 15
+          pgrep -fl karadelikdev
+      - name: Uçtan uca test
+        run: bash tests/functest.sh
+      - name: Ek servisler (PostgreSQL, MongoDB, MariaDB)
+        if: always()
+        run: bash tests/functest-extra-services.sh
+      - name: Paket (.app + .dmg)
+        if: always()
+        run: |
+          npm run build
+          A=src-tauri/target/release/bundle/macos/KaradelikDev.app
+          file "$A/Contents/MacOS/karadelikdev"
+          codesign --verify --deep --strict "$A"
+          ls -la src-tauri/target/release/bundle/dmg/
+      - name: Günlükler
+        if: always()
+        run: |
+          for f in "$KARADELIK_ROOT"/logs/karadelik.log "$KARADELIK_ROOT"/logs/apache_error.log "$KARADELIK_ROOT"/logs/mysqld.log "$RUNNER_TEMP/gui.log"; do
+            [ -f "$f" ] && { echo "== $f"; tail -60 "$f"; }
+          done
+          exit 0

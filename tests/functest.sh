@@ -218,8 +218,10 @@ fi
 
 if [ -z "$MAC" ]; then
 echo "== Windows entegrasyonu (geri alınarak)"
-do_ path_add; waitfor 10 'reg query "HKCU\\Environment" -v Path | grep -qi "lokaldev\\\\runtime"' && ok "PATH'e ekle" || bad "path_add" "yok"
-do_ path_remove; waitfor 10 '! reg query "HKCU\\Environment" -v Path | grep -qi "lokaldev\\\\runtime"' && ok "PATH'ten çıkar" || bad "path_remove" "duruyor"
+# Kök klasörün Windows yolu (ör. D:\a\karadelikdev\karadelikdev\runtime)
+RW=$(cygpath -w "$(cd "$R" && pwd)")
+do_ path_add; waitfor 10 'reg query "HKCU\\Environment" -v Path | grep -qiF "$RW"' && ok "PATH'e ekle" || bad "path_add" "yok"
+do_ path_remove; waitfor 10 '! reg query "HKCU\\Environment" -v Path | grep -qiF "$RW"' && ok "PATH'ten çıkar" || bad "path_remove" "duruyor"
 do_ ctx_toggle; waitfor 10 'reg query "HKCU\\Software\\Classes\\Directory\\shell\\KaradelikTerminal" >/dev/null 2>&1' && ok "sağ tık menüsü ekle" || bad "ctx add" "yok"
 do_ ctx_toggle; waitfor 10 '! reg query "HKCU\\Software\\Classes\\Directory\\shell\\KaradelikTerminal" >/dev/null 2>&1' && ok "sağ tık menüsü kaldır" || bad "ctx remove" "duruyor"
 else
@@ -243,3 +245,4 @@ echo "== Hepsini durdur"
 do_ stopall; waitfor 40 '! port $AP && ! port $MP && ! port $MAILP' && ok "Tümünü durdur" || bad "stopall" "açık port var"
 echo; echo "SONUÇ: $P başarılı, $F başarısız"
 for f in "${FAILS[@]}"; do echo "  - $f"; done
+[ "$F" -eq 0 ]
