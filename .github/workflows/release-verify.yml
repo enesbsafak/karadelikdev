@@ -1,0 +1,104 @@
+# Yayımlanan sürümü son kullanıcı gibi doğrular:
+# - Windows: önceki sürümün kurulum programıyla kurulum, uygulama içi güncelleme (GitHub'daki latest.json ->
+#   setup.exe, SHA-256, sessiz kurulum, yeniden açılış), kurulu sürümün denetimi ve kaldırma.
+# - macOS (Intel + Apple Silicon): yayımlanan .dmg'den /Applications'a kurulum, açılış, güncelleme denetimi.
+name: Sürüm doğrulama
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: Windows'ta önce kurulacak sürüm (güncellenecek olan)
+        default: "1.2.1"
+      to:
+        description: Beklenen yeni sürüm
+        default: "1.3.0"
+
+jobs:
+  windows-update:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FROM: ${{ inputs.from }}
+      TO: ${{ inputs.to }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Eski sürümü kur (sessiz)
+        run: |
+          gh release download "v$env:FROM" -R ${{ github.repository }} -p "KaradelikDev-$env:FROM-setup.exe" -D $env:RUNNER_TEMP
+          Start-Process -Wait -FilePath "$env:RUNNER_TEMP\KaradelikDev-$env:FROM-setup.exe" -ArgumentList '/S'
+          $exe = "$env:ProgramFiles\KaradelikDev\karadelikdev.exe"
+          if (-not (Test-Path $exe)) { throw "kurulmadı: $exe" }
+          "kurulu: $((Get-Item $exe).VersionInfo.ProductVersion)"
+      - name: Aç ve uygulama içinden güncelle
+        run: |
+          $exe = "$env:ProgramFiles\KaradelikDev\karadelikdev.exe"
+          Start-Process -FilePath $exe
+          Start-Sleep -Seconds 20
+          # Çalışan örneğe ilet: güncellemeyi indir (latest.json -> setup.exe, SHA-256), sessiz kur, yeniden aç
+          Start-Process -FilePath $exe -ArgumentList 'do','app_update_do'
+          $ok = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            Start-Sleep -Seconds 5
+            $v = (Get-Item $exe -ErrorAction SilentlyContinue).VersionInfo.ProductVersion
+            $p = Get-CimInstance Win32_Process -Filter "Name='karadelikdev.exe'" | Where-Object { $_.CommandLine -like '*--updated*' }
+            if ($v -like "$env:TO*" -and $p) { $ok = $true; break }
+          }
+          "dosya sürümü: $v"
+          Get-CimInstance Win32_Process -Filter "Name='karadelikdev.exe'" | Select-Object ProcessId, CommandLine | Format-List
+          $log = 'C:\karadelik\logs\karadelik.log'
+          if (Test-Path $log) { Get-Content $log -Tail 15 }
+          if (-not $ok) { throw "güncelleme tamamlanmadı" }
+          if (-not (Select-String -Path $log -Pattern "KaradelikDev $env:TO başlatıldı" -Quiet)) { throw "yeni sürüm açılmadı" }
+          "güncelleme tamam: $env:FROM -> $v"
+      - name: Kaldır (sessiz)
+        run: |
+          $exe = "$env:ProgramFiles\KaradelikDev\karadelikdev.exe"
+          Start-Process -Wait -FilePath "$env:ProgramFiles\KaradelikDev\uninstall.exe" -ArgumentList '/S'
+          for ($i = 0; $i -lt 30 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 2 }
+          if (Test-Path $exe) { throw "kaldırılmadı" }
+          if (-not (Test-Path 'C:\karadelik')) { throw "veri klasörü silinmemeliydi" }
+          "kaldırıldı; veri klasörü korundu"
+
+  macos-dmg:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x86_64
+          - os: macos-latest
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TO: ${{ inputs.to }}
+    steps:
+      - name: dmg'den kur
+        run: |
+          gh release download "v$TO" -R ${{ github.repository }} -p "KaradelikDev-$TO-macos-${{ matrix.arch }}.dmg" -D "$RUNNER_TEMP"
+          hdiutil attach -nobrowse -mountpoint "$RUNNER_TEMP/kd" "$RUNNER_TEMP/KaradelikDev-$TO-macos-${{ matrix.arch }}.dmg"
+          ls "$RUNNER_TEMP/kd"
+          cp -R "$RUNNER_TEMP/kd/KaradelikDev.app" /Applications/
+          hdiutil detach "$RUNNER_TEMP/kd"
+          codesign --verify --deep --strict /Applications/KaradelikDev.app
+          plutil -extract CFBundleShortVersionString raw /Applications/KaradelikDev.app/Contents/Info.plist
+          file /Applications/KaradelikDev.app/Contents/MacOS/karadelikdev
+      - name: Aç ve güncelleme denetle
+        run: |
+          open /Applications/KaradelikDev.app
+          sleep 15
+          pgrep -fl "KaradelikDev.app/Contents/MacOS/karadelikdev"
+          /Applications/KaradelikDev.app/Contents/MacOS/karadelikdev do app_update
+          sleep 10
+          LOG="$HOME/KaradelikDev/logs/karadelik.log"
+          tail -10 "$LOG"
+          grep -q "KaradelikDev $TO başlatıldı" "$LOG"
+          grep -q "KaradelikDev güncel ($TO)" "$LOG"
+          /Applications/KaradelikDev.app/Contents/MacOS/karadelikdev do exit
+          sleep 5
+          ! pgrep -f "KaradelikDev.app/Contents/MacOS/karadelikdev"

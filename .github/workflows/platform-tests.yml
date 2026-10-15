@@ -69,7 +69,7 @@ jobs:
       matrix:
         os: [macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       KARADELIK_ROOT: ${{ github.workspace }}-kd
       KARADELIK_HOSTS: ${{ github.workspace }}-hosts
@@ -93,23 +93,19 @@ jobs:
         run: cd src-tauri && cargo build
       - name: Homebrew paketleri
         run: brew install httpd php php@8.3 nginx mysql@8.4 redis memcached mailpit postgresql@17
-      # Homebrew'da hazır MariaDB paketi her macOS sürümü/mimarisi için yok (2026-10: yalnız macOS 27 arm64);
-      # kaynaktan derleme CI süresini aşar. Hazır paket yoksa MariaDB bölümü atlanır (KD_SKIP_MARIADB).
+      # Homebrew'da hazır MariaDB paketi her macOS sürümü/mimarisi için yok (2026-10: Intel'de yok); o zaman Homebrew
+      # kaynaktan derler (Intel kullanıcıları da böyle kurar). Ek servis testi beklemesin diye önceden kurulur.
       - name: Homebrew MariaDB
+        timeout-minutes: 120
         run: |
           set -o pipefail
-          TAG=$(brew ruby -e 'puts Utils::Bottles.tag' | tail -1)
-          if brew info --json=v2 mariadb@11.8 | python3 -c "import json,sys; sys.exit(0 if '$TAG' in json.load(sys.stdin)['formulae'][0]['bottle']['stable']['files'] else 1)"; then
-            if ! brew install mariadb@11.8 2>&1 | tee "$RUNNER_TEMP/mariadb-brew.log"; then
-              # Kuruldu ama bağlanamadıysa (ör. koşucuda mysql@8.4 bağlı) KaradelikDev opt/ klasörünü kullanır
-              if [ -d "$(brew --prefix)/opt/mariadb@11.8/bin" ]; then
-                echo "mariadb@11.8 kuruldu, bağlanamadı; opt/mariadb@11.8 kullanılacak"
-              else
-                echo "KD_SKIP_MARIADB=brew install mariadb@11.8 başarısız ($TAG): $(tail -1 "$RUNNER_TEMP/mariadb-brew.log")" >> "$GITHUB_ENV"
-              fi
+          if ! brew install mariadb@11.8 2>&1 | tee "$RUNNER_TEMP/mariadb-brew.log" | tail -40; then
+            # Kuruldu ama bağlanamadıysa (ör. koşucuda mysql@8.4 bağlı) KaradelikDev opt/ klasörünü kullanır
+            if [ -d "$(brew --prefix)/opt/mariadb@11.8/bin" ]; then
+              echo "mariadb@11.8 kuruldu, bağlanamadı; opt/mariadb@11.8 kullanılacak"
+            else
+              echo "KD_SKIP_MARIADB=brew install mariadb@11.8 başarısız: $(tail -1 "$RUNNER_TEMP/mariadb-brew.log")" >> "$GITHUB_ENV"
             fi
-          else
-            echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok ($TAG)" >> "$GITHUB_ENV"
           fi
       - name: Ayarlar (SSL açık, ilk kurulum geçildi, sahte hosts dosyası)
         run: |
