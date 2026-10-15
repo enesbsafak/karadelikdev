@@ -104,7 +104,7 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 ## Hızlı başlangıç
 
-1. [Son sürümden](https://github.com/enesbsafak/karadelikdev/releases/latest) `KaradelikDev-<sürüm>-setup.exe`'yi indirip çalıştırın. Kurulum yalnız sizin kullanıcınız için yapılır, yönetici izni istemez; Başlat menüsüne ve masaüstüne kısayol ekler.
+1. [Son sürümden](https://github.com/enesbsafak/karadelikdev/releases/latest) `KaradelikDev-<sürüm>-setup.exe`'yi indirip çalıştırın. Program `C:\Program Files\KaradelikDev`'e kurulur (yönetici izni ister, UAC'a **Evet**); Başlat menüsüne ve masaüstüne kısayol ekler.
 2. KaradelikDev ilk açılışta **kurulum sihirbazını** gösterir:
    - **Veri klasörü:** paketler, projeler ve veritabanları buraya gider (varsayılan `C:\karadelik`, boşluksuz bir yol seçin). Daha önce taşınabilir KaradelikDev kullandıysanız o klasörü seçin.
    - Bilgisayarda Laragon varsa "Laragon'dan içe aktar" seçilidir (indirme yapılmaz).
@@ -150,12 +150,12 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 **Node/Vite proxy.** Aynı ekranda **Proxy portu** alanına geliştirme sunucusunun portunu (ör. Vite için `5173`) yazın. `http://proje.test` o porta yönlendirilir; WebSocket (HMR) de geçer. Sunucuyu kendiniz başlatın (terminal veya Procfile: `Vite: npm run dev pwd=www/proje`).
 
-**Güncelleme.** KaradelikDev açılışta ve günde bir yeni sürüm olup olmadığına bakar (Tercihler → Gelişmiş'ten kapatılabilir). Menü → KaradelikDev → Güncelle: kurulum programı indirilir, SHA-256 ile doğrulanır, uygulama kapanır, kurulum sessizce yapılır ve KaradelikDev yeniden açılıp çalışan servisleri tekrar başlatır. Güncellemeden önceki exe `backup\app` altında saklanır; **Önceki sürüme dön** ile geri alınabilir.
+**Güncelleme.** KaradelikDev açılışta ve günde bir yeni sürüm olup olmadığına bakar (Tercihler → Gelişmiş'ten kapatılabilir). Menü → KaradelikDev → Güncelle: kurulum programı indirilir, SHA-256 ile doğrulanır, uygulama kapanır, kurulum yapılır (yalnız UAC onayı istenir) ve KaradelikDev yeniden açılıp çalışan servisleri tekrar başlatır. **Önceki sürüme dön**, güncellemeden önceki sürümün kurulum programını GitHub'dan indirip (o sürümün `SHA256SUMS.txt`'siyle doğrulayarak) aynı yoldan kurar.
 
 ## Klasör yapısı
 
 ```
-%LOCALAPPDATA%\KaradelikDev\   program (karadelikdev.exe, uninstall.exe)
+C:\Program Files\KaradelikDev\   program (karadelikdev.exe, uninstall.exe)
 
 C:\karadelik\                  veri klasörü (sihirbazdan değiştirilebilir)
 ├─ bin\<kategori>\<sürüm>\   Apache, PHP, MySQL… (Hızlı ekle veya Laragon'dan içe aktar)
@@ -163,7 +163,7 @@ C:\karadelik\                  veri klasörü (sihirbazdan değiştirilebilir)
 ├─ data\                     veritabanı dosyaları (sürüm başına: mysql-8.4, mariadb-11.8, postgresql-18.2…)
 ├─ www\                      Document Root
 ├─ usr\                      karadelik.ini, packages.conf, sites.conf, Procfile, crontab, profile\, tpl\
-├─ logs\  tmp\  backup\         backup\app: güncellemeden önceki exe
+├─ logs\  tmp\  backup\
 ```
 
 ## Yapılandırma

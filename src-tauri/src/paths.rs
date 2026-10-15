@@ -16,14 +16,18 @@ pub const REG_KEY: &str = r"Software\KaradelikDev";
 /// Kurulumlu sürümde veri klasörünün varsayılanı: kısa ve boşluksuz (Apache/MySQL boşluklu yollarla sorun çıkarır).
 pub const DEFAULT_DATA_ROOT: &str = r"C:\karadelik";
 
-fn reg_get(name: &str) -> Option<String> {
-    use winreg::enums::HKEY_CURRENT_USER;
-    winreg::RegKey::predef(HKEY_CURRENT_USER).open_subkey(REG_KEY).ok()?.get_value::<String, _>(name).ok().filter(|v| !v.trim().is_empty())
+fn reg_get_in(hive: winreg::HKEY, name: &str) -> Option<String> {
+    winreg::RegKey::predef(hive).open_subkey(REG_KEY).ok()?.get_value::<String, _>(name).ok().filter(|v| !v.trim().is_empty())
 }
 
-/// Setup'ın kurduğu klasör (NSIS kancası yazar).
-pub fn install_dir() -> Option<PathBuf> {
-    reg_get("InstallDir").map(PathBuf::from)
+fn reg_get(name: &str) -> Option<String> {
+    reg_get_in(winreg::enums::HKEY_CURRENT_USER, name)
+}
+
+/// Setup'ın kurduğu klasörler (NSIS kancası yazar): kurulumu yapan kullanıcıda HKCU, bilgisayar genelinde HKLM.
+pub fn install_dirs() -> Vec<PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE].into_iter().filter_map(|h| reg_get_in(h, "InstallDir")).map(PathBuf::from).collect()
 }
 
 /// Kurulumlu sürümün veri klasörünü kaydeder (bir sonraki açılışta geçerli olur).
@@ -54,7 +58,7 @@ impl Paths {
         }
         let exe = std::env::current_exe().map(strip_unc).unwrap_or_default();
         let exe_dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-        if install_dir().map(|d| same_dir(&d, &exe_dir)).unwrap_or(false) {
+        if install_dirs().iter().any(|d| same_dir(d, &exe_dir)) {
             let root = reg_get("DataRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_ROOT));
             return make(root, true);
         }

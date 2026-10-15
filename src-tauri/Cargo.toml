@@ -1,6 +1,6 @@
 [package]
 name = "karadelikdev"
-version = "1.2.0"
+version = "1.2.1"
 description = "KaradelikDev - yerel geliştirme ortamı yöneticisi"
 edition = "2021"
 

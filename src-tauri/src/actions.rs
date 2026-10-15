@@ -103,9 +103,9 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
             false,
         ),
         "app_rollback_do" => bg("menu.app_rollback", || {
-            crate::updater::rollback()?;
+            let setup = crate::updater::download_previous()?;
             status(&t("msg.app_restarting"));
-            crate::updater::restart()
+            crate::updater::install_and_restart(&setup)
         }),
         "web" | "localhost" => open_url(&format!("{}/", crate::vhosts::localhost_url())),
         "db" | "db_manager" => windows::open_databases(),
