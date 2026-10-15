@@ -227,9 +227,9 @@ fn run_cron() {
         };
         let logf = paths().logs().join("cron.log");
         util::append_line(&logf, &format!("[{}] {cmd}", now.format("%Y-%m-%d %H:%M")));
-        let mut c = util::hidden("cmd.exe");
-        use std::os::windows::process::CommandExt;
-        c.raw_arg(format!("/s /c \"call \"{}\" && {cmd} >> \"{}\" 2>&1\"", env_cmd.display(), logf.display()));
+        // Ortam dosyası: Windows'ta `call kdenv.cmd`, macOS'ta `. kdenv.sh`
+        let load = if cfg!(windows) { format!("call \"{}\"", env_cmd.display()) } else { format!(". \"{}\"", env_cmd.display()) };
+        let mut c = crate::platform::shell(&format!("{load} && {cmd} >> \"{}\" 2>&1", logf.display()));
         c.current_dir(&paths().root);
         if let Err(e) = c.spawn() {
             log(&format!("cron: {e}"));

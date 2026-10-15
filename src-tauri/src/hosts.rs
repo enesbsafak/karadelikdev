@@ -10,8 +10,7 @@ const BEGIN: &str = "# >>> KaradelikDev (otomatik, elle düzenlemeyin)";
 const END: &str = "# <<< KaradelikDev";
 
 pub fn hosts_path() -> PathBuf {
-    let win = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-    Path::new(&win).join(r"System32\drivers\etc\hosts")
+    crate::platform::hosts_path()
 }
 
 pub fn build(current: &str, hosts: &[String]) -> String {

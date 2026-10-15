@@ -144,7 +144,7 @@ pub fn open(dir: &Path, run: Option<&str>) -> Result<()> {
         }
         "powershell" => {
             let mut c = Command::new("cmd.exe");
-            c.creation_flags(util::CREATE_NEW_CONSOLE).current_dir(dir);
+            c.creation_flags(crate::platform::CREATE_NEW_CONSOLE).current_dir(dir);
             c.raw_arg(format!("/s /k \"{init} && powershell -NoLogo\""));
             c.spawn()?;
         }
@@ -185,7 +185,7 @@ pub fn edit(file: &Path) -> Result<()> {
     };
     let mut c = Command::new(&editor);
     if editor.extension().map(|e| e == "cmd" || e == "bat").unwrap_or(false) {
-        c.creation_flags(util::CREATE_NO_WINDOW);
+        c.creation_flags(crate::platform::CREATE_NO_WINDOW);
     }
     c.arg(file).spawn().with_context(|| editor.display().to_string())?;
     Ok(())

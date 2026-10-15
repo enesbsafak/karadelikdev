@@ -11,31 +11,9 @@ pub struct Paths {
     pub created: bool,
 }
 
-/// Setup'ın yazdığı ve uygulamanın okuduğu kayıt anahtarı (HKCU).
-pub const REG_KEY: &str = r"Software\KaradelikDev";
-/// Kurulumlu sürümde veri klasörünün varsayılanı: kısa ve boşluksuz (Apache/MySQL boşluklu yollarla sorun çıkarır).
-pub const DEFAULT_DATA_ROOT: &str = r"C:\karadelik";
-
-fn reg_get_in(hive: winreg::HKEY, name: &str) -> Option<String> {
-    winreg::RegKey::predef(hive).open_subkey(REG_KEY).ok()?.get_value::<String, _>(name).ok().filter(|v| !v.trim().is_empty())
-}
-
-fn reg_get(name: &str) -> Option<String> {
-    reg_get_in(winreg::enums::HKEY_CURRENT_USER, name)
-}
-
-/// Setup'ın kurduğu klasörler (NSIS kancası yazar): kurulumu yapan kullanıcıda HKCU, bilgisayar genelinde HKLM.
-pub fn install_dirs() -> Vec<PathBuf> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE].into_iter().filter_map(|h| reg_get_in(h, "InstallDir")).map(PathBuf::from).collect()
-}
-
 /// Kurulumlu sürümün veri klasörünü kaydeder (bir sonraki açılışta geçerli olur).
 pub fn set_data_root(path: &Path) -> anyhow::Result<()> {
-    use winreg::enums::HKEY_CURRENT_USER;
-    let (key, _) = winreg::RegKey::predef(HKEY_CURRENT_USER).create_subkey(REG_KEY)?;
-    key.set_value("DataRoot", &path.display().to_string())?;
-    Ok(())
+    crate::platform::config_set("DataRoot", &path.display().to_string())
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
@@ -44,7 +22,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 impl Paths {
-    /// Sıra: KARADELIK_ROOT ortam değişkeni; setup ile kurulmuşsa kayıtlı veri klasörü (varsayılan C:\karadelik);
+    /// Sıra: KARADELIK_ROOT ortam değişkeni; setup ile kurulmuşsa kayıtlı veri klasörü (varsayılan: platform);
     /// geliştirme derlemesinde `<repo>/runtime`; aksi halde exe'nin bulunduğu dizin (taşınabilir).
     pub fn detect() -> Paths {
         let make = |root: PathBuf, installed: bool| {
@@ -58,8 +36,8 @@ impl Paths {
         }
         let exe = std::env::current_exe().map(strip_unc).unwrap_or_default();
         let exe_dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-        if install_dirs().iter().any(|d| same_dir(d, &exe_dir)) {
-            let root = reg_get("DataRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(DEFAULT_DATA_ROOT));
+        if crate::platform::install_dirs().iter().any(|d| same_dir(d, &exe_dir)) {
+            let root = crate::platform::config_get("DataRoot").map(PathBuf::from).unwrap_or_else(crate::platform::default_data_root);
             return make(root, true);
         }
         if cfg!(debug_assertions) {

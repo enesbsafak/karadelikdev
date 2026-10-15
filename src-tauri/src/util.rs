@@ -1,25 +1,15 @@
 //! Süreç, dosya ve ağ yardımcıları.
 
-use anyhow::{anyhow, bail, Context, Result};
-use std::collections::HashMap;
-use std::ffi::OsStr;
+use anyhow::{bail, Context, Result};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-pub const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-
-/// Konsol penceresi açmayan bir komut.
-pub fn hidden(program: impl AsRef<OsStr>) -> Command {
-    let mut c = Command::new(program);
-    c.creation_flags(CREATE_NO_WINDOW);
-    c
-}
+// İşletim sistemine bağlı süreç yardımcıları platform modülündedir; çağıranlar util üzerinden kullanır.
+pub use crate::platform::{hidden, kill_tree, listeners, open_console, run_elevated, run_elevated_code, which};
 
 /// Komutu çalıştırır, çıkış kodunu ve birleşik stdout+stderr çıktısını döndürür.
 pub fn run_capture(mut cmd: Command) -> Result<(i32, String)> {
@@ -107,17 +97,6 @@ pub fn spawn_bg(
     c.spawn().with_context(|| format!("başlatılamadı: {}", program.display()))
 }
 
-/// Görünür bir cmd penceresinde komut satırı çalıştırır (`cmd /k`).
-pub fn open_console(title: &str, cwd: &Path, cmdline: &str, keep_open: bool) -> Result<Child> {
-    let mut c = Command::new("cmd.exe");
-    c.creation_flags(CREATE_NEW_CONSOLE);
-    c.current_dir(cwd);
-    let sw = if keep_open { "/k" } else { "/c" };
-    // /s: cmd yalnızca en dıştaki tırnak çiftini kaldırır, içteki tırnaklar korunur
-    c.raw_arg(format!("/s {sw} \"title {title} & {cmdline}\""));
-    c.spawn().context("cmd.exe başlatılamadı")
-}
-
 pub fn port_open(port: u16) -> bool {
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
     TcpStream::connect_timeout(&addr, Duration::from_millis(150)).is_ok()
@@ -132,34 +111,6 @@ pub fn wait_port(port: u16, up: bool, timeout: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(200));
     }
     false
-}
-
-/// `netstat -ano` çıktısından dinlenen TCP portu -> PID haritası.
-pub fn listeners() -> HashMap<u16, u32> {
-    let mut map = HashMap::new();
-    let mut c = hidden("netstat");
-    c.args(["-ano", "-p", "TCP"]);
-    if let Ok((_, out)) = run_capture(c) {
-        parse_listeners(&out, &mut map);
-    }
-    let mut c6 = hidden("netstat");
-    c6.args(["-ano", "-p", "TCPv6"]);
-    if let Ok((_, out)) = run_capture(c6) {
-        parse_listeners(&out, &mut map);
-    }
-    map
-}
-
-fn parse_listeners(out: &str, map: &mut HashMap<u16, u32>) {
-    for line in out.lines() {
-        let cols: Vec<&str> = line.split_whitespace().collect();
-        // Proto  Local  Foreign  State  PID  (durum dile göre çevrilebilir, sütun konumuna bakılır)
-        if cols.len() == 5 && cols[0].starts_with("TCP") && (cols[2].ends_with(":0") || cols[2].ends_with("]:0")) {
-            if let (Some(port), Ok(pid)) = (cols[1].rsplit(':').next().and_then(|p| p.parse().ok()), cols[4].parse()) {
-                map.entry(port).or_insert(pid);
-            }
-        }
-    }
 }
 
 pub fn process_path(pid: u32) -> Option<PathBuf> {
@@ -205,12 +156,6 @@ pub fn pids_by_exe(exe: &Path, root: &Path) -> Vec<u32> {
         })
         .map(|(pid, _)| pid.as_u32())
         .collect()
-}
-
-pub fn kill_tree(pid: u32) {
-    let mut c = hidden("taskkill");
-    c.args(["/T", "/F", "/PID", &pid.to_string()]);
-    let _ = run_capture(c);
 }
 
 /// Dizinde en fazla `depth` seviye aşağıda dosya arar (büyük/küçük harf duyarsız).
@@ -370,84 +315,6 @@ pub fn random_password(len: usize) -> String {
     (0..len).map(|_| CH[r.random_range(0..CH.len())] as char).collect()
 }
 
-pub fn which(name: &str) -> Option<PathBuf> {
-    let mut c = hidden("where");
-    c.arg(name);
-    run_capture(c).ok().and_then(|(code, out)| {
-        if code == 0 {
-            out.lines().next().map(|l| PathBuf::from(l.trim()))
-        } else {
-            None
-        }
-    })
-}
-
-/// Yönetici olarak çalıştırır (UAC) ve bitmesini bekler. Kullanıcı reddederse hata döner.
-pub fn run_elevated(program: &Path, args: &str, wait: bool) -> Result<()> {
-    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
-
-    let w = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let verb = w("runas");
-    let file = w(&program.to_string_lossy());
-    let params = w(args);
-    unsafe {
-        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
-        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        info.fMask = SEE_MASK_NOCLOSEPROCESS;
-        info.lpVerb = verb.as_ptr();
-        info.lpFile = file.as_ptr();
-        info.lpParameters = params.as_ptr();
-        info.nShow = SW_HIDE;
-        if ShellExecuteExW(&mut info) == 0 {
-            return Err(anyhow!("Yönetici izni verilmedi"));
-        }
-        if !info.hProcess.is_null() {
-            if wait {
-                WaitForSingleObject(info.hProcess, INFINITE);
-                let mut code: u32 = 0;
-                GetExitCodeProcess(info.hProcess, &mut code);
-                CloseHandle(info.hProcess);
-                if code != 0 {
-                    return Err(anyhow!("Yönetici işlemi {code} koduyla bitti"));
-                }
-            } else {
-                CloseHandle(info.hProcess);
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Yönetici olarak çalıştırır, bitmesini bekler ve çıkış kodunu döndürür.
-pub fn run_elevated_code(program: &Path, args: &str) -> Result<u32> {
-    use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
-    use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
-    use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
-    let w = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let (verb, file, params) = (w("runas"), w(&program.to_string_lossy()), w(args));
-    unsafe {
-        let mut info: SHELLEXECUTEINFOW = std::mem::zeroed();
-        info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        info.fMask = SEE_MASK_NOCLOSEPROCESS;
-        info.lpVerb = verb.as_ptr();
-        info.lpFile = file.as_ptr();
-        info.lpParameters = params.as_ptr();
-        info.nShow = SW_HIDE;
-        if ShellExecuteExW(&mut info) == 0 || info.hProcess.is_null() {
-            return Err(anyhow!("Yönetici izni verilmedi"));
-        }
-        WaitForSingleObject(info.hProcess, INFINITE);
-        let mut code: u32 = 0;
-        GetExitCodeProcess(info.hProcess, &mut code);
-        CloseHandle(info.hProcess);
-        Ok(code)
-    }
-}
-
 pub fn append_line(path: &Path, line: &str) {
     if let Some(p) = path.parent() {
         let _ = fs::create_dir_all(p);
@@ -496,17 +363,6 @@ mod tests {
         let mut v = vec!["php-8.9.1", "php-8.10.0", "php-7.4.33"];
         v.sort_by(|a, b| natural_cmp(a, b));
         assert_eq!(v, vec!["php-7.4.33", "php-8.9.1", "php-8.10.0"]);
-    }
-
-    #[test]
-    fn listeners_parse() {
-        let out = "  TCP    0.0.0.0:80             0.0.0.0:0              LISTENING       1234\n  TCP    127.0.0.1:3306         0.0.0.0:0              DINLEME       55\n  TCP    127.0.0.1:50000        127.0.0.1:80           ESTABLISHED     9\n  TCP    [::]:443               [::]:0                 LISTENING       77";
-        let mut m = HashMap::new();
-        parse_listeners(out, &mut m);
-        assert_eq!(m.get(&80), Some(&1234));
-        assert_eq!(m.get(&3306), Some(&55));
-        assert_eq!(m.get(&443), Some(&77));
-        assert_eq!(m.get(&50000), None);
     }
 
     #[test]

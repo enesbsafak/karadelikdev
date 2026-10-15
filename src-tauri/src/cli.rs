@@ -10,25 +10,13 @@ use crate::paths::Paths;
 use std::path::Path;
 
 fn attach_console() {
-    use windows_sys::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
-    unsafe {
-        AttachConsole(ATTACH_PARENT_PROCESS);
-    }
+    crate::platform::attach_console();
 }
 
 /// Kendi std tutamaçlarımızı devredilemez yap: aksi halde başlattığımız httpd/mysqld bunları miras
 /// alır ve bizi çağıran betiğin borusu (pipe) servisler kapanana kadar açık kalır.
 pub fn protect_std_handles() {
-    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
-    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
-    unsafe {
-        for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-            let h = GetStdHandle(which);
-            if !h.is_null() && h as isize != -1 {
-                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
-            }
-        }
-    }
+    crate::platform::protect_std_handles();
 }
 
 const USAGE: &str = "KaradelikDev\n\nKullanım:\n  karadelikdev reload [apache|nginx]\n  karadelikdev start [servis]\n  karadelikdev stop [servis]\n  karadelikdev --terminal <dizin>\n";

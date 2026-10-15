@@ -12,6 +12,7 @@ mod menu;
 mod mysqlops;
 mod packages;
 mod paths;
+mod platform;
 mod php;
 mod procfile;
 mod projects;
