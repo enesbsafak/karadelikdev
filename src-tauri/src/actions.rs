@@ -92,15 +92,20 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
                 Some(l) => l,
                 None => crate::updater::check()?.ok_or_else(|| anyhow!(tf("msg.app_up_to_date", &[crate::updater::current_version()])))?,
             };
-            crate::updater::install(&l)?;
+            let setup = crate::updater::download(&l)?;
             status(&t("msg.app_restarting"));
-            crate::updater::restart(true)
+            crate::updater::install_and_restart(&setup)
         }),
-        "app_rollback" => windows::confirm(&t("menu.app_rollback"), &t("msg.app_rollback_confirm"), "app_rollback_do", false),
+        "app_rollback" => windows::confirm(
+            &t("menu.app_rollback"),
+            &tf("msg.app_rollback_confirm", &[&crate::updater::previous_version().unwrap_or_else(|| "?".into())]),
+            "app_rollback_do",
+            false,
+        ),
         "app_rollback_do" => bg("menu.app_rollback", || {
             crate::updater::rollback()?;
             status(&t("msg.app_restarting"));
-            crate::updater::restart(false)
+            crate::updater::restart()
         }),
         "web" | "localhost" => open_url(&format!("{}/", crate::vhosts::localhost_url())),
         "db" | "db_manager" => windows::open_databases(),

@@ -1,8 +1,8 @@
-﻿# KaradelikDev sürüm paketi: exe'yi derler, dist\ altında zip, SHA256SUMS.txt ve latest.json üretir.
-# latest.json uygulama içi güncelleyicinin okuduğu dosyadır; GitHub sürümüne zip ile birlikte yüklenmelidir.
+﻿﻿# KaradelikDev sürüm paketi: kurulum programını (NSIS) derler, dist\ altında setup, SHA256SUMS.txt ve latest.json üretir.
+# latest.json uygulama içi güncelleyicinin okuduğu dosyadır; GitHub sürümüne setup ile birlikte yüklenmelidir.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\release.ps1            # derle + paketle
-#   powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -NoBuild   # mevcut exe'yi paketle
+#   powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -NoBuild   # mevcut derlemeyi paketle
 #
 # Sürüm notları: docs\releases\<sürüm>.md (GitHub sürüm metni). Madde işaretli satırlar latest.json'a özet olarak girer.
 param([switch]$NoBuild)
@@ -22,31 +22,28 @@ if (-not $NoBuild) {
     if ($LASTEXITCODE -ne 0) { throw 'Derleme başarısız' }
 }
 
-$name = "KaradelikDev-$version-windows-x64"
+$built = "src-tauri\target\release\bundle\nsis\KaradelikDev_${version}_x64-setup.exe"
+if (-not (Test-Path $built)) { throw "Kurulum programı yok: $built" }
+$name = "KaradelikDev-$version-setup.exe"
 $dist = Join-Path $root 'dist'
-$stage = Join-Path $dist $name
-Remove-Item -Recurse -Force $stage, "$dist\$name.zip" -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force $stage | Out-Null
-Copy-Item src-tauri\target\release\karadelikdev.exe, LICENSE, README.md $stage
-# Windows PowerShell 5.1 Compress-Archive girdi adlarına ters eğik çizgi yazar; tar (bsdtar) standart zip üretir
-& "$env:SystemRoot\System32\tar.exe" -a -c -f "$dist\$name.zip" -C $dist $name
-if ($LASTEXITCODE -ne 0) { throw 'zip oluşturulamadı' }
+New-Item -ItemType Directory -Force $dist | Out-Null
+Get-ChildItem $dist -File | Remove-Item -Force
+Copy-Item $built "$dist\$name"
 
-$zipHash = (Get-FileHash "$dist\$name.zip" -Algorithm SHA256).Hash.ToLower()
-$exeHash = (Get-FileHash "$stage\karadelikdev.exe" -Algorithm SHA256).Hash.ToLower()
+$setupHash = (Get-FileHash "$dist\$name" -Algorithm SHA256).Hash.ToLower()
+$exeHash = (Get-FileHash src-tauri\target\release\karadelikdev.exe -Algorithm SHA256).Hash.ToLower()
 $utf8 = New-Object System.Text.UTF8Encoding $false
-[IO.File]::WriteAllText("$dist\SHA256SUMS.txt", "$zipHash $name.zip`n$exeHash karadelikdev.exe`n", $utf8)
+[IO.File]::WriteAllText("$dist\SHA256SUMS.txt", "$setupHash $name`n$exeHash karadelikdev.exe`n", $utf8)
 
 $summary = (Get-Content $notesFile -Encoding UTF8 | Where-Object { $_ -match '^\s*- ' } | ForEach-Object { ($_ -replace '\*\*', '' -replace '`', '').Trim() }) -join "`n"
 $latest = [ordered]@{
-    version    = $version
-    url        = "https://github.com/enesbsafak/karadelikdev/releases/download/v$version/$name.zip"
-    sha256     = $zipHash
-    exe_sha256 = $exeHash
-    notes      = $summary
+    version = $version
+    url     = "https://github.com/enesbsafak/karadelikdev/releases/download/v$version/$name"
+    sha256  = $setupHash
+    notes   = $summary
 }
 [IO.File]::WriteAllText("$dist\latest.json", ($latest | ConvertTo-Json), $utf8)
 Copy-Item $notesFile "$dist\RELEASE_NOTES.md"
 
-Write-Host "Hazır: dist\$name.zip, dist\SHA256SUMS.txt, dist\latest.json"
-Write-Host "Yayın: gh release create v$version dist\$name.zip dist\SHA256SUMS.txt dist\latest.json --title `"KaradelikDev $version`" --notes-file $notesFile"
+Write-Host "Hazır: dist\$name, dist\SHA256SUMS.txt, dist\latest.json"
+Write-Host "Önce main'i push edin, sonra: gh release create v$version dist\$name dist\SHA256SUMS.txt dist\latest.json --title `"KaradelikDev $version`" --notes-file $notesFile"

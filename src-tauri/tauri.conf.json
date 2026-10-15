@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KaradelikDev",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "identifier": "dev.karadelik.app",
   "build": {
     "frontendDist": "../ui"
@@ -29,7 +29,21 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "enesbsafak",
+    "copyright": "© 2026 enesbsafak · MIT",
+    "homepage": "https://github.com/enesbsafak/karadelikdev",
+    "shortDescription": "Windows için yerel geliştirme ortamı",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Turkish", "English"],
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

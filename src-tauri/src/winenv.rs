@@ -43,6 +43,18 @@ pub fn add_to_path() -> Result<()> {
     set_user_path(&add)
 }
 
+/// Kullanıcı PATH'inde KaradelikDev girdisi var mı?
+pub fn in_path() -> bool {
+    user_path().iter().any(|p| ours(p))
+}
+
+/// Windows açılışında çalıştırma kaydı (autostart eklentisinin yazdığı HKCU Run değeri).
+pub fn remove_autostart() {
+    if let Ok(k) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(r"Software\Microsoft\Windows\CurrentVersion\Run", KEY_READ | KEY_WRITE) {
+        let _ = k.delete_value("KaradelikDev");
+    }
+}
+
 pub fn remove_from_path() -> Result<()> {
     let parts: Vec<String> = user_path().into_iter().filter(|p| !ours(p)).collect();
     set_user_path(&parts)

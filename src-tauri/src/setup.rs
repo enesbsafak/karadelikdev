@@ -25,6 +25,8 @@ pub struct SetupOptions {
 #[derive(Clone, Debug, Serialize)]
 pub struct SetupPlan {
     pub root: String,
+    /// Setup ile kurulmuş: veri klasörü sihirbazdan değiştirilebilir.
+    pub installed: bool,
     pub root_has_space: bool,
     pub laragon: Option<String>,
     pub vc_version: Option<String>,
@@ -80,6 +82,7 @@ pub fn plan() -> SetupPlan {
     }
     SetupPlan {
         root_has_space: root.contains(' '),
+        installed: paths().installed,
         root,
         laragon: crate::importer::find_laragon().map(|p| p.display().to_string()),
         vc_version: vc_runtime().map(|v| v.2),
@@ -87,6 +90,35 @@ pub fn plan() -> SetupPlan {
         packages: pkgs,
         busy_ports: busy,
     }
+}
+
+/// Kurulumlu sürümde veri klasörünü değiştirir ve uygulamayı yeniden başlatır. Bu açılışta oluşturulmuş ve
+/// henüz boş olan eski klasör silinir. Var olan bir KaradelikDev klasörü seçilirse (ör. eski taşınabilir kurulum)
+/// projeler, veritabanları ve ayarlar olduğu gibi kullanılır.
+pub fn set_data_root(path: &str) -> Result<()> {
+    let p = paths();
+    let new = std::path::PathBuf::from(path.trim());
+    if !new.is_absolute() {
+        bail!("{path}?");
+    }
+    if path.contains(' ') {
+        bail!(t("setup.space_warning"));
+    }
+    let exe_dir = crate::updater::exe_path()?.parent().map(Path::to_path_buf).unwrap_or_default();
+    if new.starts_with(&exe_dir) {
+        bail!(t("setup.root_in_install_dir"));
+    }
+    if new == p.root {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&new).with_context(|| new.display().to_string())?;
+    crate::paths::set_data_root(&new)?;
+    let empty = |d: std::path::PathBuf| std::fs::read_dir(d).map(|mut r| r.next().is_none()).unwrap_or(true);
+    if p.created && empty(p.bin()) && empty(p.default_data()) {
+        let _ = util::remove_dir_force(&p.root);
+    }
+    log(&format!("Veri klasörü değişti: {} -> {}", p.root.display(), new.display()));
+    crate::updater::restart()
 }
 
 fn step(msg: &str) {

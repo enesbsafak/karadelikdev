@@ -240,6 +240,12 @@ pub fn setup_run(app: tauri::AppHandle, options: crate::setup::SetupOptions) {
 }
 
 #[tauri::command]
+pub async fn setup_set_root(path: String) -> Result<(), String> {
+    // Başarılıysa süreç yeniden başlar; doğrulama hataları pencereye döner
+    crate::setup::set_data_root(&path).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 pub fn setup_finish() {
     update_settings(|s| s.first_run = false);
     windows::close_setup();

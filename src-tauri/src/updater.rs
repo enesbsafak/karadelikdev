@@ -1,10 +1,12 @@
-//! KaradelikDev'in kendini güncellemesi. GitHub'daki son sürümün `latest.json` dosyası okunur; zip indirilip
-//! SHA-256 ile doğrulanır, exe değiştirilir ve uygulama yeniden başlatılır. Önceki exe `<ad>.exe.old` olarak
-//! saklanır; "Önceki sürüme dön" ikisini yer değiştirir. Çalışan exe Windows'ta silinemez ama yeniden adlandırılabilir.
+//! KaradelikDev'in kendini güncellemesi. GitHub'daki son sürümün `latest.json` dosyası okunur; kurulum programı
+//! (setup.exe) indirilip SHA-256 ile doğrulanır. Uygulama servisleri durdurup kapanır; gizli bir PowerShell
+//! setup'ı sessizce (`/S /UPDATE`) çalıştırır ve yeni sürümü açar. Taşınabilir kurulumdan gelen kullanıcıda
+//! setup normal (`/S`) çalışır ve eski klasör veri klasörü olarak kaydedilir.
+//! Geri dönüş için güncellemeden önceki exe `backup\app` altında saklanır.
 
 use crate::kcore::{log, paths};
 use crate::services::{self, Svc};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use parking_lot::Mutex;
 use serde::Deserialize;
 use std::fs::{self, File};
@@ -15,13 +17,10 @@ const LATEST_URL: &str = "https://github.com/enesbsafak/karadelikdev/releases/la
 #[derive(Clone, Debug, Deserialize)]
 pub struct Latest {
     pub version: String,
-    /// Zip paketi (exe, LICENSE, README).
+    /// Kurulum programı (KaradelikDev-<sürüm>-setup.exe).
     pub url: String,
-    /// Zip'in SHA-256 özeti.
+    /// Kurulum programının SHA-256 özeti.
     pub sha256: String,
-    /// Zip içindeki exe'nin SHA-256 özeti.
-    #[serde(default)]
-    pub exe_sha256: String,
     #[serde(default)]
     pub notes: String,
 }
@@ -52,8 +51,8 @@ fn fetch_latest() -> Result<Latest> {
     if test_url.is_none() && !l.url.starts_with("https://github.com/enesbsafak/karadelikdev/releases/download/") {
         bail!("latest.json: beklenmeyen indirme adresi {}", l.url);
     }
-    if l.sha256.len() != 64 {
-        bail!("latest.json: SHA-256 eksik");
+    if !l.url.to_lowercase().ends_with(".exe") || l.sha256.len() != 64 {
+        bail!("latest.json: kurulum programı veya SHA-256 eksik");
     }
     Ok(l)
 }
@@ -94,101 +93,104 @@ pub fn exe_path() -> Result<PathBuf> {
     Ok(crate::paths::strip_unc(std::env::current_exe()?))
 }
 
-fn old_path(exe: &Path) -> PathBuf {
-    exe.with_file_name(format!("{}.old", exe.file_name().unwrap_or_default().to_string_lossy()))
+fn backup_dir() -> PathBuf {
+    paths().backup().join("app")
+}
+
+fn backup_exe() -> PathBuf {
+    backup_dir().join("karadelikdev.exe")
+}
+
+/// Geri dönülebilecek önceki sürüm (varsa sürüm numarasıyla).
+pub fn previous_version() -> Option<String> {
+    backup_exe().is_file().then(|| fs::read_to_string(backup_dir().join("version.txt")).unwrap_or_default().trim().to_string())
 }
 
 pub fn rollback_available() -> bool {
-    exe_path().map(|e| old_path(&e).is_file()).unwrap_or(false)
+    backup_exe().is_file()
 }
 
-/// İndirir, doğrular ve exe'yi değiştirir. Yeniden başlatma `restart` ile yapılır.
-pub fn install(l: &Latest) -> Result<()> {
+/// Kurulum programını indirir ve doğrular; çalışan exe'yi geri dönüş için yedekler.
+pub fn download(l: &Latest) -> Result<PathBuf> {
     let dir = paths().tmp().join("update");
     let _ = crate::util::remove_dir_force(&dir);
     fs::create_dir_all(&dir)?;
-    let zip_path = dir.join(format!("KaradelikDev-{}.zip", l.version));
-    crate::packages::download(&l.url, &zip_path, &format!("KaradelikDev {}", l.version))?;
+    let setup = dir.join(format!("KaradelikDev-{}-setup.exe", l.version));
+    crate::packages::download(&l.url, &setup, &format!("KaradelikDev {}", l.version))?;
     crate::packages::progress_done();
-    if !sha256_file(&zip_path)?.eq_ignore_ascii_case(&l.sha256) {
+    if !sha256_file(&setup)?.eq_ignore_ascii_case(&l.sha256) {
+        let _ = fs::remove_file(&setup);
         bail!(crate::i18n::t("msg.update_bad_hash"));
     }
-    let exe = exe_path()?;
-    let exe_name = exe.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let new_exe = dir.join(&exe_name);
-    {
-        let mut z = zip::ZipArchive::new(std::io::BufReader::new(File::open(&zip_path)?))?;
-        let idx = (0..z.len())
-            .find(|&i| {
-                z.by_index(i)
-                    .ok()
-                    .and_then(|e| e.enclosed_name())
-                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("karadelikdev.exe")))
-                    .unwrap_or(false)
-            })
-            .ok_or_else(|| anyhow!("zip: karadelikdev.exe yok"))?;
-        let mut entry = z.by_index(idx)?;
-        std::io::copy(&mut entry, &mut File::create(&new_exe)?)?;
-    }
-    if !l.exe_sha256.is_empty() && !sha256_file(&new_exe)?.eq_ignore_ascii_case(&l.exe_sha256) {
-        bail!(crate::i18n::t("msg.update_bad_hash"));
-    }
-    replace_exe(&exe, &new_exe)?;
-    let _ = crate::util::remove_dir_force(&dir);
-    log(&format!("KaradelikDev {} -> {} güncellendi", current_version(), l.version));
-    Ok(())
+    fs::create_dir_all(backup_dir())?;
+    fs::copy(exe_path()?, backup_exe()).context("exe yedeklenemedi")?;
+    fs::write(backup_dir().join("version.txt"), current_version())?;
+    Ok(setup)
 }
 
-/// Çalışan exe'yi `.old` yapar, yenisini yerine koyar; başarısızsa eskiyi geri getirir.
-fn replace_exe(exe: &Path, new_exe: &Path) -> Result<()> {
-    let old = old_path(exe);
-    if old.exists() {
-        fs::remove_file(&old).with_context(|| format!("silinemedi: {}", old.display()))?;
-    }
-    fs::rename(exe, &old).with_context(|| format!("yeniden adlandırılamadı: {}", exe.display()))?;
-    if let Err(e) = fs::copy(new_exe, exe) {
-        let _ = fs::remove_file(exe);
-        let _ = fs::rename(&old, exe);
-        return Err(anyhow!(e).context(format!("kopyalanamadı: {}", exe.display())));
-    }
-    Ok(())
-}
-
-/// Mevcut exe ile `.old`'u yer değiştirir; tekrar çağrılırsa yeni sürüme geri döner.
+/// Önceki exe'ye döner: çalışan exe yeniden adlandırılır (silinemez ama adı değişebilir), yedek yerine kopyalanır,
+/// şimdiki sürüm de yedeğe geçer (tekrar çağrılınca yeni sürüme döner). `.swap` bir sonraki açılışta silinir.
 pub fn rollback() -> Result<()> {
-    let exe = exe_path()?;
-    let old = old_path(&exe);
-    if !old.is_file() {
+    let backup = backup_exe();
+    if !backup.is_file() {
         bail!(crate::i18n::t("msg.no_previous_version"));
     }
-    let swap = exe.with_file_name(format!("{}.swap", exe.file_name().unwrap_or_default().to_string_lossy()));
+    let exe = exe_path()?;
+    let swap = exe.with_file_name("karadelikdev.exe.swap");
     let _ = fs::remove_file(&swap);
-    fs::rename(&exe, &swap)?;
-    if let Err(e) = fs::rename(&old, &exe) {
+    let prev_version = previous_version().unwrap_or_default();
+    fs::rename(&exe, &swap).with_context(|| format!("yeniden adlandırılamadı: {}", exe.display()))?;
+    if let Err(e) = fs::copy(&backup, &exe) {
         let _ = fs::rename(&swap, &exe);
-        return Err(e.into());
+        return Err(anyhow::anyhow!(e).context(format!("kopyalanamadı: {}", exe.display())));
     }
-    fs::rename(&swap, &old)?;
-    log("Önceki KaradelikDev sürümüne dönüldü");
+    fs::copy(&swap, &backup)?;
+    fs::write(backup_dir().join("version.txt"), current_version())?;
+    log(&format!("Önceki KaradelikDev sürümüne dönüldü: {} -> {prev_version}", current_version()));
     Ok(())
 }
 
-/// Servisleri durdurur, bu süreç kapandıktan sonra exe'yi yeniden başlatacak gizli bir PowerShell bırakır ve çıkar
-/// (tek örnek kilidi yüzünden yeni süreç eskisi açıkken başlatılamaz). `resume` ise yeni süreç çalışan servisleri
-/// yeniden başlatır; eski sürümler `--updated` argümanını tanımadığı için geri dönüşte kullanılmaz.
-pub fn restart(resume: bool) -> Result<()> {
+/// Açılışta: geri dönüşten ve 1.1.0'ın exe değiştirme yönteminden kalan dosyaları siler.
+pub fn cleanup() {
+    if let Ok(exe) = exe_path() {
+        for name in ["karadelikdev.exe.swap", "karadelikdev.exe.old"] {
+            let _ = fs::remove_file(exe.with_file_name(name));
+        }
+    }
+}
+
+fn running_list() -> String {
     let running: Vec<&str> = Svc::START_ORDER.into_iter().filter(|s| services::is_running(*s) && services::owned_by_us(*s)).map(|s| s.id()).collect();
-    let list = if running.is_empty() { "-".to_string() } else { running.join(",") };
+    if running.is_empty() { "-".to_string() } else { running.join(",") }
+}
+
+/// Servisleri durdurur, bu süreç kapandıktan sonra çalışacak gizli bir PowerShell bırakır ve çıkar (tek örnek kilidi
+/// yüzünden yeni süreç eskisi açıkken başlatılamaz). PowerShell varsa önce setup'ı sessizce çalıştırır, sonra
+/// kurulu exe'yi açar. `resume`: yeni süreç önceden çalışan servisleri başlatır (`--updated`).
+fn relaunch(setup: Option<&Path>, resume: bool) -> Result<()> {
+    let list = running_list();
     crate::tunnel::stop();
     services::stop_all();
     let exe = exe_path()?;
     let q = |s: &str| format!("'{}'", s.replace('\'', "''"));
-    let args = if resume { format!(" -ArgumentList '--updated',{}", q(&list)) } else { String::new() };
-    let script = format!(
-        "Wait-Process -Id {} -Timeout 30 -ErrorAction SilentlyContinue; Start-Process -FilePath {}{args}",
-        std::process::id(),
-        q(&exe.display().to_string())
-    );
+    let mut script = format!("Wait-Process -Id {} -Timeout 30 -ErrorAction SilentlyContinue; ", std::process::id());
+    if let Some(setup) = setup {
+        // Kurulu sürümde /UPDATE: eskisini kaldırmadan üzerine kurar, kısayollara dokunmaz.
+        // Taşınabilirden geçişte ilk kurulum olduğu için kısayollar oluşturulsun diye /UPDATE verilmez.
+        let args = if paths().installed { "'/S','/UPDATE'" } else { "'/S'" };
+        script.push_str(&format!("Start-Process -FilePath {} -ArgumentList {args} -Wait; ", q(&setup.display().to_string())));
+    }
+    script.push_str(&format!(
+        "$d = (Get-ItemProperty -Path 'HKCU:\\Software\\KaradelikDev' -ErrorAction SilentlyContinue).InstallDir; \
+         $e = if ($d) {{ Join-Path $d 'karadelikdev.exe' }} else {{ {cur} }}; \
+         if (-not (Test-Path $e)) {{ $e = {cur} }}; ",
+        cur = q(&exe.display().to_string())
+    ));
+    if resume {
+        script.push_str(&format!("Start-Process -FilePath $e -ArgumentList '--updated',{}", q(&list)));
+    } else {
+        script.push_str("Start-Process -FilePath $e");
+    }
     crate::util::hidden("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .spawn()
@@ -198,6 +200,20 @@ pub fn restart(resume: bool) -> Result<()> {
     }
     std::thread::sleep(std::time::Duration::from_secs(3));
     std::process::exit(0);
+}
+
+/// İndirilmiş setup ile güncelle. Taşınabilir kurulumdan geçişte mevcut klasör veri klasörü olarak kaydedilir.
+pub fn install_and_restart(setup: &Path) -> Result<()> {
+    if !paths().installed {
+        crate::paths::set_data_root(&paths().root)?;
+    }
+    log(&format!("KaradelikDev {} kuruluyor: {}", current_version(), setup.display()));
+    relaunch(Some(setup), true)
+}
+
+/// Yalnız yeniden başlat (geri dönüş, veri klasörü değişikliği).
+pub fn restart() -> Result<()> {
+    relaunch(None, false)
 }
 
 /// Güncellemeden sonra açılışta: önceden çalışan servisleri başlatır.
@@ -226,19 +242,5 @@ mod tests {
         assert!(!is_newer("1.0.0", "1.0.0"));
         assert!(!is_newer("0.9.0", "1.0.0"));
         assert!(!is_newer("", "1.0.0"));
-    }
-
-    #[test]
-    fn swap_and_rollback() {
-        let dir = std::env::temp_dir().join(format!("kd-upd-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let exe = dir.join("karadelikdev.exe");
-        let new = dir.join("new.exe");
-        fs::write(&exe, "v1").unwrap();
-        fs::write(&new, "v2").unwrap();
-        replace_exe(&exe, &new).unwrap();
-        assert_eq!(fs::read_to_string(&exe).unwrap(), "v2");
-        assert_eq!(fs::read_to_string(old_path(&exe)).unwrap(), "v1");
-        fs::remove_dir_all(&dir).unwrap();
     }
 }

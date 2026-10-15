@@ -35,6 +35,18 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+/// Taşınabilir sürümden geçişte veri klasöründe kalan eski exe yanlışlıkla açılmasın diye adı değiştirilir.
+fn retire_portable_exe() {
+    let old = kcore::paths().root.join("karadelikdev.exe");
+    if old.is_file() {
+        let to = kcore::paths().root.join("karadelikdev-tasinabilir.exe.old");
+        let _ = std::fs::remove_file(&to);
+        if std::fs::rename(&old, &to).is_ok() {
+            kcore::log(&format!("Eski taşınabilir exe kullanım dışı: {}", to.display()));
+        }
+    }
+}
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
     cli::protect_std_handles();
@@ -91,6 +103,7 @@ pub fn run() {
             commands::pick_sql_file,
             commands::setup_run,
             commands::setup_finish,
+            commands::setup_set_root,
             commands::open_url,
             commands::projects_overview,
             commands::project_set,
@@ -136,6 +149,23 @@ pub fn run() {
             }
 
             let s = kcore::settings();
+            // Kaldırıp yeniden kurulunca veya taşınabilirden kuruluma geçince sistem kayıtlarını ayarlara göre ve
+            // bu exe'nin yoluyla yeniden yaz (eski taşınabilir exe'yi göstermesinler)
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                if s.run_at_startup {
+                    let _ = app.autolaunch().enable();
+                }
+            }
+            if s.in_path && !winenv::in_path() {
+                let _ = winenv::add_to_path();
+            }
+            if kcore::paths().installed {
+                if winenv::context_menu_installed() {
+                    let _ = winenv::add_context_menu();
+                }
+                retire_portable_exe();
+            }
             let autostarted = start_args.iter().any(|a| a == "--autostart");
             // Güncelleme sonrası yeniden başlatma: `--updated <servisler>`
             let resumed = (start_args.get(1).map(String::as_str) == Some("--updated")).then(|| start_args.get(2).cloned().unwrap_or_default());
@@ -150,6 +180,7 @@ pub fn run() {
             scheduler::start();
             let was_resumed = resumed.is_some();
             std::thread::spawn(move || {
+                updater::cleanup();
                 acl::check_root();
                 let _ = terminal::write_env_cmd();
                 if let Some(list) = &resumed {

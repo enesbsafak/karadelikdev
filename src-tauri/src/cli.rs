@@ -91,6 +91,26 @@ pub fn handle(args: &[String]) -> Option<i32> {
                 _ => Some(2),
             }
         }
+        // Kaldırıcı (NSIS) çağırır: servisleri durdurur, sisteme eklenen kayıtları siler. Veriler kalır.
+        "--uninstall" => {
+            attach_console();
+            crate::kcore::init(Paths::detect());
+            crate::services::stop_all();
+            crate::winenv::remove_autostart();
+            if crate::winenv::context_menu_installed() {
+                let _ = crate::winenv::remove_context_menu();
+            }
+            if crate::winenv::in_path() {
+                let _ = crate::winenv::remove_from_path();
+            }
+            for svc in crate::services::Svc::ALL {
+                if crate::services::winservice::installed(svc) {
+                    let _ = crate::services::winservice::uninstall(svc);
+                }
+            }
+            crate::kcore::log("KaradelikDev kaldırıldı (veri klasörü korunur)");
+            Some(0)
+        }
         "--terminal" => {
             crate::kcore::init(Paths::detect());
             let dir = args.get(2).map(|d| d.trim_end_matches('"').to_string()).unwrap_or_else(|| crate::kcore::settings().document_root);

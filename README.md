@@ -4,7 +4,7 @@
 
 # KaradelikDev
 
-**Windows için hızlı, taşınabilir ve hafif yerel geliştirme ortamı.**
+**Windows için hızlı ve hafif yerel geliştirme ortamı.**
 Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mailpit tek pencereden.
 `www` içine bir klasör koyun, `klasor.test` adresi kendiliğinden hazır olsun.
 
@@ -14,7 +14,7 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db)
 ![Rust](https://img.shields.io/badge/Rust-stable-dea584)
 
-<sub>*A portable local development environment for Windows (Apache/Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with automatic `*.test` virtual hosts. UI in Turkish and English.*</sub>
+<sub>*A local development environment for Windows (Apache/Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with automatic `*.test` virtual hosts. UI in Turkish and English.*</sub>
 
 <img src="docs/screenshots/main.png" width="640" alt="KaradelikDev ana pencere">
 
@@ -104,16 +104,19 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 ## Hızlı başlangıç
 
-1. [Son sürümü](https://github.com/enesbsafak/karadelikdev/releases/latest) indirin ve zip'i **boşluk içermeyen** bir klasöre açın, ör. `C:\karadelik\`.
-2. `karadelikdev.exe`'yi çalıştırın. İlk açılışta **kurulum sihirbazı** gelir:
+1. [Son sürümden](https://github.com/enesbsafak/karadelikdev/releases/latest) `KaradelikDev-<sürüm>-setup.exe`'yi indirip çalıştırın. Kurulum yalnız sizin kullanıcınız için yapılır, yönetici izni istemez; Başlat menüsüne ve masaüstüne kısayol ekler.
+2. KaradelikDev ilk açılışta **kurulum sihirbazını** gösterir:
+   - **Veri klasörü:** paketler, projeler ve veritabanları buraya gider (varsayılan `C:\karadelik`, boşluksuz bir yol seçin). Daha önce taşınabilir KaradelikDev kullandıysanız o klasörü seçin.
    - Bilgisayarda Laragon varsa "Laragon'dan içe aktar" seçilidir (indirme yapılmaz).
    - Yoksa önerilen paketler seçilidir: Apache, PHP 8.4, MySQL 8.4, phpMyAdmin, Composer, Mailpit.
 3. **Kur** → **Bitir** → **Tümünü Başlat**.
 4. `C:\karadelik\www\merhaba\index.php` oluşturun ve `http://merhaba.test` adresini açın.
 
+**Kaldırma:** Ayarlar → Uygulamalar → KaradelikDev → Kaldır. Servisler durdurulur; otomatik başlatma, sağ tık menüsü ve PATH girdileri silinir. Veri klasörü (projeler, veritabanları) **silinmez**; isterseniz elle silin. hosts dosyasındaki `.test` girdileri ve yerel SSL kök sertifikası kalır (Menü → Araçlar → SSL'den kaldırmadan önce güveni kaldırabilirsiniz).
+
 > **Gereksinimler:** Windows 10/11 x64, Microsoft Edge WebView2 (Windows 11'de hazır). Sihirbaz eksikse Visual C++ çalışma zamanını kurmayı önerir.
 >
-> Exe şimdilik dijital olarak imzalı değil; Windows SmartScreen "Bilinmeyen yayımcı" uyarısı gösterebilir: **Ek bilgi → Yine de çalıştır**.
+> Kurulum programı şimdilik dijital olarak imzalı değil; Windows SmartScreen "Bilinmeyen yayımcı" uyarısı gösterebilir: **Ek bilgi → Yine de çalıştır**.
 
 <details>
 <summary><b>Kurulum sihirbazı ve Tercihler</b></summary>
@@ -147,19 +150,20 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 **Node/Vite proxy.** Aynı ekranda **Proxy portu** alanına geliştirme sunucusunun portunu (ör. Vite için `5173`) yazın. `http://proje.test` o porta yönlendirilir; WebSocket (HMR) de geçer. Sunucuyu kendiniz başlatın (terminal veya Procfile: `Vite: npm run dev pwd=www/proje`).
 
-**Güncelleme.** KaradelikDev açılışta ve günde bir yeni sürüm olup olmadığına bakar (Tercihler → Gelişmiş'ten kapatılabilir). Menü → KaradelikDev → Güncelle: paket indirilir, SHA-256 ile doğrulanır, exe değiştirilir ve çalışan servisler uygulama yeniden açıldıktan sonra tekrar başlatılır. Önceki exe `karadelikdev.exe.old` olarak saklanır; **Önceki sürüme dön** ile geri alınabilir.
+**Güncelleme.** KaradelikDev açılışta ve günde bir yeni sürüm olup olmadığına bakar (Tercihler → Gelişmiş'ten kapatılabilir). Menü → KaradelikDev → Güncelle: kurulum programı indirilir, SHA-256 ile doğrulanır, uygulama kapanır, kurulum sessizce yapılır ve KaradelikDev yeniden açılıp çalışan servisleri tekrar başlatır. Güncellemeden önceki exe `backup\app` altında saklanır; **Önceki sürüme dön** ile geri alınabilir.
 
 ## Klasör yapısı
 
 ```
-C:\karadelik\
-├─ karadelikdev.exe
+%LOCALAPPDATA%\KaradelikDev\   program (karadelikdev.exe, uninstall.exe)
+
+C:\karadelik\                  veri klasörü (sihirbazdan değiştirilebilir)
 ├─ bin\<kategori>\<sürüm>\   Apache, PHP, MySQL… (Hızlı ekle veya Laragon'dan içe aktar)
 ├─ etc\                      üretilen ayarlar: apache2, nginx, php\<sürüm>\php.ini, mysql, ssl, apps
 ├─ data\                     veritabanı dosyaları (sürüm başına: mysql-8.4, mariadb-11.8, postgresql-18.2…)
 ├─ www\                      Document Root
 ├─ usr\                      karadelik.ini, packages.conf, sites.conf, Procfile, crontab, profile\, tpl\
-├─ logs\  tmp\  backup\
+├─ logs\  tmp\  backup\         backup\app: güncellemeden önceki exe
 ```
 
 ## Yapılandırma
@@ -188,7 +192,7 @@ karadelikdev --headless start|stop
 karadelikdev --headless pg-password <parola>   :: PostgreSQL çalışırken postgres parolası (boş = parolasız)
 ```
 
-Kök klasör varsayılan olarak exe'nin bulunduğu klasördür; `KARADELIK_ROOT` ortam değişkeniyle değiştirilebilir.
+Veri klasörü `HKCU\Software\KaradelikDev\DataRoot` kaydında tutulur (sihirbazdan değiştirilir); `KARADELIK_ROOT` ortam değişkeni her ikisinin önüne geçer. Kurulum dışında, ör. kaynak koddan derlenmiş bir exe, kendi klasörünü kök olarak kullanır.
 
 ## Varsayılan portlar
 
@@ -233,7 +237,7 @@ Gerekenler: [Rust](https://rustup.rs) (MSVC), Node.js 20+, Visual Studio Build T
 ```bash
 npm install
 npm run dev       # geliştirme; kök klasör: .\runtime
-npm run build     # src-tauri\target\release\karadelikdev.exe
+npm run build     # src-tauri\target\release\bundle\nsis\KaradelikDev_<sürüm>_x64-setup.exe
 ```
 
 **Testler**
@@ -262,14 +266,15 @@ src-tauri\resources\tpl\        gömülü şablonlar
 src-tauri\resources\defaults\   ilk açılışta usr\ altına yazılan dosyalar
 ui\                             arayüz (HTML/CSS/JS, derleme adımı yok)
 tests\                          uçtan uca test betikleri
-scripts\release.ps1             sürüm paketi: zip, SHA256SUMS.txt, latest.json
+src-tauri\windows\hooks.nsh    kurulum/kaldırma kancaları (NSIS)
+scripts\release.ps1             sürüm paketi: setup, SHA256SUMS.txt, latest.json
 ```
 
 **Sürüm yayınlama**
 
 1. `src-tauri\Cargo.toml`, `package.json` ve `src-tauri\tauri.conf.json` içindeki sürümü yükseltin, `docs\releases\<sürüm>.md` notunu yazın.
-2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında zip, `SHA256SUMS.txt` ve `latest.json`.
-3. Üç dosyayı `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
+2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında `KaradelikDev-<sürüm>-setup.exe`, `SHA256SUMS.txt` ve `latest.json`.
+3. Önce main'i push edin, sonra üç dosyayı `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır; push'tan önce çalıştırılırsa etiket eski commit'e bağlanır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
 
 ## Lisans
 

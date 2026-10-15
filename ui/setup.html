@@ -16,6 +16,15 @@
   </div>
 
   <section class="content" id="form">
+    <div class="hidden" id="rootBox">
+      <h2 data-i18n="setup.data_root">Veri klasörü</h2>
+      <div class="row">
+        <input class="field grow" id="dataRoot" readonly>
+        <button class="btn" id="pickRoot" data-i18n="setup.change">Değiştir</button>
+      </div>
+      <div class="hint" style="margin-left:0" data-i18n="setup.data_root_hint"></div>
+      <div class="notice hidden" id="rootErr"></div>
+    </div>
     <div class="notice hidden" id="spaceWarn"><span data-i18n="setup.space_warning"></span></div>
     <div class="notice hidden" id="busyWarn"><span id="busyText"></span></div>
 

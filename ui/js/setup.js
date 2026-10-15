@@ -12,6 +12,8 @@ function render(data) {
   plan = data.plan;
   const d = data.defaults;
   $('root').textContent = plan.root;
+  $('rootBox').classList.toggle('hidden', !plan.installed);
+  $('dataRoot').value = plan.root;
   $('spaceWarn').classList.toggle('hidden', !plan.root_has_space);
   if (plan.busy_ports.length) {
     $('busyText').textContent = `${T('setup.busy_ports')} ${plan.busy_ports.join(' · ')}`;
@@ -73,6 +75,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   render(await invoke('setup_plan'));
 
   $('skip').addEventListener('click', () => invoke('setup_finish'));
+  $('pickRoot').addEventListener('click', async () => {
+    const p = await invoke('pick_folder', { current: $('dataRoot').value });
+    if (!p || p === $('dataRoot').value) return;
+    $('rootErr').classList.add('hidden');
+    try {
+      // Başarılıysa uygulama yeni klasörle yeniden açılır
+      await invoke('setup_set_root', { path: p });
+    } catch (e) {
+      $('rootErr').textContent = String(e);
+      $('rootErr').classList.remove('hidden');
+    }
+  });
   $('finish').addEventListener('click', () => invoke('setup_finish'));
   $('install').addEventListener('click', () => {
     $('form').classList.add('hidden');
