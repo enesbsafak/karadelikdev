@@ -312,6 +312,7 @@ scripts/release.sh              macOS sürüm paketi: dmg, app.tar.gz; SHA256SUM
 
 1. `src-tauri\Cargo.toml`, `package.json` ve `src-tauri\tauri.conf.json` içindeki sürümü yükseltin, `docs\releases\<sürüm>.md` notunu yazın.
 2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında `KaradelikDev-<sürüm>-setup.exe`, `SHA256SUMS.txt` ve `latest.json`.
+   Windows makinesi yoksa: Actions → **Windows sürüm paketi** iş akışı aynı betiği çalıştırıp `windows-dist` yapıtını üretir (`gh run download -n windows-dist -D dist`).
 3. macOS: Windows'un `dist\` çıktısını Mac'teki `dist/` klasörüne kopyalayıp `bash scripts/release.sh` (Intel için ayrıca `--universal`) çalıştırın; dmg ve app.tar.gz eklenir, `latest.json`'a `platforms` girdileri yazılır (eski Windows istemcileri `url`/`sha256` alanlarını okumaya devam eder).
 4. Önce main'i push edin, sonra dosyaları `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır; push'tan önce çalıştırılırsa etiket eski commit'e bağlanır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
 
