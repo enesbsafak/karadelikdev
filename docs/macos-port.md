@@ -13,6 +13,15 @@ GitHub Actions (`.github/workflows/platform-tests.yml`, `macos` dalındaki her p
 | macOS Intel (macos-15-intel, Sequoia) | geçti | 79/79 | 8/8 (MariaDB: Homebrew'da Sequoia/Intel hazır paketi yok, atlandı) | x86_64 `.app` + `.dmg` |
 | macOS Apple Silicon (macos-latest, Tahoe) | geçti | 79/79 | 12/12 | arm64 `.app` + `.dmg` |
 
+Sonraki çalışmada (38793976306) Intel'de MariaDB de Homebrew ile kaynaktan derlenip test edildi: 79/79 + 12/12; üç koşucu yeşil.
+
+Yayımlanan sürümün doğrulanması (`.github/workflows/release-verify.yml`, çalışma 38793976246, yeşil):
+- Windows: 1.2.1 resmi kurulum programıyla sessiz kurulum → uygulama içinden GitHub'daki `latest.json` ile 1.3.0'a güncelleme
+  (setup.exe indirildi, SHA-256 doğrulandı, sessiz kuruldu, `--updated` ile yeniden açıldı; dosya sürümü 1.3.0) → sessiz kaldırma
+  (program silindi, veri klasörü korundu).
+- macOS Intel ve Apple Silicon: yayımlanan `.dmg`'den `/Applications`'a kurulum, imza denetimi, açılış, gerçek GitHub'a karşı
+  güncelleme denetimi ("güncel (1.3.0)"), ⌘Q karşılığı çıkış.
+
 CI'ın Windows'ta bulduğu ve düzeltilen önceden var olan sorunlar: katalogdaki msys2 Redis derlemesi `/d/...` yolunu tanımıyordu
 (yapılandırma yolu artık göreli), `initdb` önceden oluşturulmuş veri klasörünün izinlerini değiştiremeyebiliyordu (klasörü artık
 initdb oluşturur), MongoDB'nin ilk açılışı 20 sn'yi aşabiliyordu (60 sn). macOS'ta bulunan: `localhost` ile bağlanan PHP'nin
@@ -149,7 +158,7 @@ bash tests/functest.sh && bash tests/functest-extra-services.sh
 
 ## Yapılacaklar
 
-1. Windows'ta CI'ın ölçemediği kurulum akışı: NSIS kurulum programıyla 1.2.1'den 1.3.0'a uygulama içi güncelleme (UAC).
+1. İmza kararı (aşağıda 2.) dışında açık iş yok; her sürümde `platform-tests` ve `release-verify` iş akışları çalıştırılmalı.
 2. İmza kararı (Developer ID + notarization veya ad-hoc). Karar verilirse `tauri.macos.conf.json` `signingIdentity` ve
    notarization ortam değişkenleri (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
 3. Gerçek bir Intel Mac'te (veya Rosetta ile) çalıştırma ve ilk gerçek GitHub sürümünden (1.3.0 → sonraki) güncelleme.
