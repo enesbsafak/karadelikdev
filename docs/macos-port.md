@@ -18,6 +18,14 @@ Kod `macos` dalında. Bu belge durumu, kararları ve sıradaki adımları tutar.
     etkilenmiyor; Finder Hızlı Eylemi `automator` ile çalıştırıldı (seçilen klasörde terminal); launchd servisi
     kur → durdur → başlat → kaldır; uygulama içi güncelleme `.app` paketinde yerel sunucuyla (indirme, SHA-256, `.app` değişimi,
     `--updated` ile servislerin geri gelmesi; bozuk özet reddediliyor); pencereler ve menü çubuğu ekran görüntüsüyle.
+  - Parola isteyenler (kullanıcı onayıyla, gerçek sistemde): yerel CA'nın anahtar zincirine eklenip `demo.test` sertifikasının
+    sistemce geçerli sayılması ve kaldırılması (CA anahtar zincirinden de siliniyor); yeni proje klasörünün `/etc/hosts`'a
+    parola penceresiyle yazılması (`root:wheel 644` korunuyor), `http://kdhosts.test`'in açılması, projeler silinince bloğun
+    kaldırılıp dosyanın birebir eski haline dönmesi.
+  - Oturum açılışında çalıştırma: LaunchAgent (`--autostart`) yazılıyor, launchd uygulamayı başlatıyor, `--uninstall` siliyor.
+  - Paylaşım: cloudflared (Homebrew, uygulama içinden kuruldu) ile genel adres `demo` projesini döndürdü, durdurulunca kapandı.
+  - Intel: `npm run build -- --target x86_64-apple-darwin` → x86_64 `.app` (imza geçerli) + `_x64.dmg`. Bu Mac'te Rosetta
+    olmadığı için çalıştırılmadı.
 - Windows kodu davranış değişmeden korunuyor; Windows'a özgü dosyalar `winenv/windows.rs`, `acl/windows.rs`,
   `services/winservice/windows.rs` olarak taşındı (git rename). **Windows'ta henüz çalıştırılıp test edilmedi** (aşağıda 1. adım).
 - macOS paket kimliği `dev.karadelik.desktop` (`tauri.macos.conf.json`); Windows'taki `dev.karadelik.app` değişmedi
@@ -84,6 +92,8 @@ Homebrew öneki/Cellar tespiti, `.app` paketi tespiti, Finder'dan açılınca ek
 - macOS: Homebrew `mysql` ile `mariadb` (sürümsüz) birbirini dışlar; katalog sürümlü (keg-only) formülleri tercih eder.
 - macOS: Homebrew 6+ güvenilmeyen tap'lerden formül yüklemez ("Refusing to load formula ... from untrusted tap"); yalnız istenen
   formüle değil bağımlılıklarına da (mongodb-database-tools) güven gerekir. Kurulum `brew tap` sonrası `brew trust --tap <tap>` çalıştırır.
+- macOS: `/etc/hosts`'ta yalnız `127.0.0.1` girdisi varsa AAAA sorgusu dış DNS'e gider ve `.test` adresleri saniyelerce
+  bekler; blok her ad için `::1` girdisi de yazar.
 - macOS: `mysqladmin shutdown` MySQL 8.4 günlüğüne "via user signal" yazar; bu normal kapanıştır.
 - macOS: aynı binary'yi `brew services` de çalıştırabileceği için "bizim süreç" denetimi komut satırında/çalışma dizininde kök yolunu da arar
   (`util::pid_mentions_root`); servisler kökteki `tmp/` çalışma diziniyle başlar.
@@ -123,8 +133,6 @@ bash tests/functest.sh && bash tests/functest-extra-services.sh
    dalları (PATH birleştirme, fcgi düzeltmesi, `Svc::exe_name`, `php::cgi_exe_for`) Windows'ta derlenip doğrulanmalı.
 2. İmza kararı (Developer ID + notarization veya ad-hoc). Karar verilirse `tauri.macos.conf.json` `signingIdentity` ve
    notarization ortam değişkenleri (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
-3. Elle doğrulanacaklar (parola/onay isteyen veya internete açan, otomatik testte olmayanlar): SSL CA'yı anahtar zincirine
-   ekleme ve kaldırma, gerçek `/etc/hosts` yazımı (parola penceresi), oturum açılışında çalıştırma (autostart LaunchAgent),
-   paylaşım (cloudflared/ngrok projeyi internete açar), Intel Mac (x86_64) derlemesi, gerçek GitHub sürümünden güncelleme.
+3. Gerçek bir Intel Mac'te (veya Rosetta ile) çalıştırma ve ilk gerçek GitHub sürümünden (1.3.0 → sonraki) güncelleme.
 4. Sürüm 1.3.0: `Cargo.toml`, `package.json`, `tauri.conf.json` sürümü ve `docs/releases/1.3.0.md`; Windows'ta
    `scripts\release.ps1`, Mac'te `bash scripts/release.sh --universal`; ikisinin `dist` çıktısı birlikte yayınlanır.

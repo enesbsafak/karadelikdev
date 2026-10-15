@@ -40,6 +40,11 @@ pub fn build(current: &str, hosts: &[String]) -> String {
         out.push_str(nl);
         for h in hosts {
             out.push_str(&format!("127.0.0.1      {h}{nl}"));
+            // macOS: yalnız IPv4 girdisi varsa AAAA sorgusu dış DNS'e gider ve yanıt gelene kadar (ör. .test için
+            // birkaç saniye) bekletir; ::1 girdisi iki sorguyu da yerelde yanıtlar.
+            if cfg!(target_os = "macos") {
+                out.push_str(&format!("::1            {h}{nl}"));
+            }
         }
         out.push_str(END);
     }
@@ -128,6 +133,7 @@ mod tests {
         let base = &format!("127.0.0.1 localhost{}", crate::platform::LINE_END);
         let a = build(base, &["a.test".into(), "b.test".into()]);
         assert!(a.contains("127.0.0.1      a.test"));
+        assert_eq!(a.contains("::1            a.test"), cfg!(target_os = "macos"));
         let b = build(&a, &["c.test".into()]);
         assert!(!b.contains("a.test"));
         assert!(b.contains("c.test"));
