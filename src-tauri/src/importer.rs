@@ -1,11 +1,24 @@
 //! Laragon'dan içe aktarma: Laragon'un bin ve etc\apps klasörleri dizin bağlantısıyla (junction)
 //! eklenir, gigabaytlarca kopya yapılmaz. KaradelikDev bin içine yazmadığı için paylaşım güvenlidir.
+//! Laragon yalnız Windows'ta vardır; macOS'ta `find_laragon` hiçbir şey bulmaz ve menüde görünmez.
 
 use crate::kcore::paths;
+#[cfg(windows)]
 use crate::util::{hidden, run_capture};
 use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 
+#[cfg(not(windows))]
+pub fn find_laragon() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(windows))]
+fn junction(_link: &Path, _target: &Path) -> Result<()> {
+    bail!("Laragon içe aktarma yalnız Windows'ta")
+}
+
+#[cfg(windows)]
 pub fn find_laragon() -> Option<PathBuf> {
     ["C:\\laragon", "D:\\laragon", "E:\\laragon"]
         .iter()
@@ -13,6 +26,7 @@ pub fn find_laragon() -> Option<PathBuf> {
         .find(|p| p.join("bin").is_dir() && p.join("laragon.exe").exists())
 }
 
+#[cfg(windows)]
 fn junction(link: &Path, target: &Path) -> Result<()> {
     if let Some(p) = link.parent() {
         std::fs::create_dir_all(p)?;

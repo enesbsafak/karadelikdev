@@ -63,12 +63,14 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
         "help" => windows::info(
             &format!("KaradelikDev {}", env!("CARGO_PKG_VERSION")),
             &p.root.display().to_string(),
-            "karadelikdev reload [apache|nginx]\n\
+            &format!("karadelikdev reload [apache|nginx]\n\
              karadelikdev start [servis]\n\
              karadelikdev stop [servis]\n\
              karadelikdev do <eylem>\n\
              karadelikdev --terminal <dizin>\n\n\
-             Ctrl+Alt+T  Terminal",
+             {}  Terminal",
+                crate::platform::TERMINAL_SHORTCUT
+            ),
         ),
         "exit" => exit(),
         "app_update" => bg("menu.app_update_check", || {
@@ -261,7 +263,8 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
         }),
         "tool" => open_tool(&a1)?,
         "netstat" => {
-            crate::util::open_console("netstat", &p.root, "netstat -ano | findstr LISTENING", true)?;
+            let cmd = if cfg!(windows) { "netstat -ano | findstr LISTENING" } else { "lsof -nP -iTCP -sTCP:LISTEN" };
+            crate::util::open_console("netstat", &p.root, cmd, true)?;
         }
         "ssl" => {
             let svc = a1.clone();
@@ -312,7 +315,12 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
             Ok(())
         }),
         "certmgr" => {
-            let _ = std::process::Command::new("cmd").args(["/c", "start", "", "certmgr.msc"]).spawn();
+            if cfg!(windows) {
+                let _ = std::process::Command::new("cmd").args(["/c", "start", "", "certmgr.msc"]).spawn();
+            } else {
+                // Anahtar Zinciri Erişimi (macOS 15+ /System/Library/CoreServices/Applications altında)
+                let _ = std::process::Command::new("/usr/bin/open").args(["-b", "com.apple.keychainaccess"]).spawn();
+            }
         }
         "cacert_update" => bg("menu.cacert_update", || {
             crate::scheduler::update_cacert(true)?;
@@ -379,7 +387,7 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
         }
         "php" => php_action(&a1, &a2)?,
         "redis_cli" => {
-            let cli = crate::versions::exe("redis", "redis-cli.exe").ok_or_else(|| anyhow!(tf("msg.not_installed", &["redis-cli"])))?;
+            let cli = crate::versions::exe("redis", &crate::platform::exe("redis-cli")).ok_or_else(|| anyhow!(tf("msg.not_installed", &["redis-cli"])))?;
             crate::util::open_console("redis-cli", &p.root, &format!("\"{}\" -p {}", cli.display(), s.svc("redis").port), true)?;
         }
         "proc" => crate::procfile::run(&a1)?,
@@ -560,7 +568,7 @@ fn php_action(op: &str, arg: &str) -> Result<()> {
             Ok(())
         }),
         "sendmail" => {
-            let mp = crate::versions::exe("mailpit", "mailpit.exe").ok_or_else(|| anyhow!(tf("msg.not_installed", &["Mailpit"])))?;
+            let mp = crate::versions::exe("mailpit", &crate::platform::exe("mailpit")).ok_or_else(|| anyhow!(tf("msg.not_installed", &["Mailpit"])))?;
             let line = format!("sendmail_path = \"{} sendmail --smtp-addr=127.0.0.1:{}\"", crate::paths::fwd(&mp), settings().svc("mailpit").port);
             copy(&line);
             notify(&t("msg.sendmail_copied"));
@@ -599,9 +607,51 @@ fn restart_php_consumers() -> Result<()> {
     Ok(())
 }
 
+/// macOS'ta kurulu masaüstü veritabanı araçları (ad, .app yolu). `mysql://` adresini açabilenler önce.
+pub fn mac_db_tools() -> Vec<(&'static str, PathBuf)> {
+    if cfg!(windows) {
+        return vec![];
+    }
+    [("Sequel Ace", "Sequel Ace.app"), ("TablePlus", "TablePlus.app"), ("DBeaver", "DBeaver.app")]
+        .into_iter()
+        .map(|(n, a)| (n, PathBuf::from("/Applications").join(a)))
+        .filter(|(_, p)| p.exists())
+        .collect()
+}
+
+/// Veritabanı aracının adı (Veritabanı yöneticisindeki düğme): HeidiSQL / Sequel Ace / TablePlus / DBeaver.
+pub fn db_tool_name() -> Option<String> {
+    if crate::versions::tool("heidisql", &crate::platform::exe("heidisql")).is_some() {
+        return Some("HeidiSQL".into());
+    }
+    mac_db_tools().first().map(|(n, _)| n.to_string())
+}
+
+/// macOS: aracı MySQL bağlantı adresiyle açar (Sequel Ace ve TablePlus `mysql://` biçimini tanır).
+fn open_mac_db_tool() -> bool {
+    let Some((name, app)) = mac_db_tools().into_iter().next() else { return false };
+    let mut c = std::process::Command::new("/usr/bin/open");
+    c.arg("-a").arg(&app);
+    if name != "DBeaver" {
+        let pw = crate::mysqlops::root_password();
+        let auth = if pw.is_empty() { "root".to_string() } else { format!("root:{}", url_encode(&pw)) };
+        c.arg(format!("mysql://{auth}@127.0.0.1:{}", settings().svc("mysql").port));
+    }
+    c.spawn().is_ok()
+}
+
+fn url_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
 fn open_database_tool() {
     if let Some(h) = crate::versions::tool("heidisql", "heidisql.exe") {
         let _ = std::process::Command::new(h).spawn();
+        return;
+    }
+    if open_mac_db_tool() {
         return;
     }
     let aliases = crate::vhosts::app_aliases();
@@ -615,6 +665,26 @@ fn open_database_tool() {
 }
 
 fn open_tool(name: &str) -> Result<()> {
+    #[cfg(not(windows))]
+    {
+        if name == "dbtool" {
+            if open_mac_db_tool() {
+                return Ok(());
+            }
+            return Err(anyhow!(tf("msg.not_installed", &[name])));
+        }
+        // macOS: /Applications altındaki uygulama
+        let app = match name {
+            "vscode" => "Visual Studio Code.app",
+            "dbeaver" => "DBeaver.app",
+            "sequelace" => "Sequel Ace.app",
+            "tableplus" => "TablePlus.app",
+            other => return Err(anyhow!(tf("msg.not_installed", &[other]))),
+        };
+        std::process::Command::new("/usr/bin/open").arg("-a").arg(PathBuf::from("/Applications").join(app)).spawn()?;
+        return Ok(());
+    }
+    #[allow(unreachable_code)]
     let (cat, exe) = match name {
         "heidisql" => ("heidisql", "heidisql.exe"),
         "dbeaver" => ("dbeaver", "dbeaver.exe"),

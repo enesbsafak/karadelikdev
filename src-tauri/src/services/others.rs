@@ -4,6 +4,7 @@ use super::{ensure_port_free, kill_tracked, service_env, track, Svc};
 use crate::kcore::{paths, settings};
 use crate::i18n::{t, tf};
 use crate::paths::fwd;
+use crate::platform::exe;
 use crate::util::{self, hidden};
 use crate::versions;
 use anyhow::{anyhow, bail, Result};
@@ -45,21 +46,37 @@ pub fn postgres_start() -> Result<()> {
     if !data.join("PG_VERSION").exists() {
         crate::kcore::status(&t("msg.initializing"));
         std::fs::create_dir_all(&data)?;
-        let mut c = hidden(bin.join("initdb.exe"));
+        let mut c = hidden(bin.join(exe("initdb")));
         c.arg("-D").arg(&data).args(["-U", "postgres", "-A", "trust", "-E", "UTF8", "--locale=C"]);
         let (code, out) = util::run_logged(c, &pg_log(), Duration::from_secs(180))?;
         if code != 0 {
             bail!("initdb: {}", out.lines().rev().take(6).collect::<Vec<_>>().join("\n"));
         }
     }
-    let mut c = hidden(bin.join("pg_ctl.exe"));
-    c.arg("-D").arg(&data).arg("-l").arg(pg_log()).arg("-o").arg(format!("-p {port}")).args(["-w", "start"]);
+    let mut c = hidden(bin.join(exe("pg_ctl")));
+    c.arg("-D").arg(&data).arg("-l").arg(pg_log()).arg("-o").arg(pg_server_opts(port)).args(["-w", "start"]);
     // pg_ctl, postgres'i arka planda başlatır; çıktısı boruya bağlanırsa okuma hiç bitmez
     let (code, out) = util::run_logged(c, &paths().logs().join("pg_ctl.log"), Duration::from_secs(90))?;
     if code != 0 {
         bail!("pg_ctl: {}\n{}", out.trim(), util::tail(&pg_log(), 6));
     }
     wait_or_fail(Svc::Postgresql, port, 10, Some(pg_log()))
+}
+
+/// postgres sunucu seçenekleri. macOS'ta Unix soketi /tmp yerine kökte: aynı portta başka bir PostgreSQL'in
+/// (ör. Homebrew) kilit dosyasıyla çakışmaz.
+pub fn pg_server_opts(port: u16) -> String {
+    if cfg!(windows) {
+        format!("-p {port}")
+    } else {
+        format!("-p {port} -k \"{}\"", pg_socket_dir().display())
+    }
+}
+
+/// Unix soketinin klasörü: kökteki tmp; soket yolu (`<klasör>/.s.PGSQL.<port>`) 103 karakteri aşacaksa /tmp.
+pub fn pg_socket_dir() -> PathBuf {
+    let t = paths().tmp();
+    if t.as_os_str().len() + 18 < 100 { t } else { PathBuf::from("/tmp") }
 }
 
 /// Veri dizini anahtarı (ör. "postgresql-18.2"); parola bu anahtarla saklanır.
@@ -102,7 +119,7 @@ pub fn pg_set_password(new: &str) -> Result<()> {
     let bin = pg_bin().ok_or_else(|| anyhow!(tf("msg.not_installed", &["PostgreSQL"])))?;
     let data = pg_data().unwrap();
     let lit = if new.is_empty() { "NULL".to_string() } else { format!("'{}'", new.replace('\'', "''")) };
-    let mut c = hidden(bin.join("psql.exe"));
+    let mut c = hidden(bin.join(exe("psql")));
     c.args(["-h", "127.0.0.1", "-p", &port.to_string(), "-U", "postgres", "-d", "postgres", "-w", "-v", "ON_ERROR_STOP=1"])
         .arg("-c")
         .arg(format!("ALTER USER postgres PASSWORD {lit}"))
@@ -114,7 +131,7 @@ pub fn pg_set_password(new: &str) -> Result<()> {
     let hba = data.join("pg_hba.conf");
     let content = std::fs::read_to_string(&hba)?;
     std::fs::write(&hba, set_hba_method(&content, if new.is_empty() { "trust" } else { "scram-sha-256" }))?;
-    let mut c = hidden(bin.join("pg_ctl.exe"));
+    let mut c = hidden(bin.join(exe("pg_ctl")));
     c.arg("-D").arg(&data).arg("reload");
     let (code, out) = util::run_logged(c, &paths().logs().join("pg_ctl.log"), Duration::from_secs(30))?;
     if code != 0 {
@@ -129,7 +146,7 @@ pub fn pg_set_password(new: &str) -> Result<()> {
 
 pub fn postgres_stop() -> Result<()> {
     if let (Some(bin), Some(data)) = (pg_bin(), pg_data()) {
-        let mut c = hidden(bin.join("pg_ctl.exe"));
+        let mut c = hidden(bin.join(exe("pg_ctl")));
         c.arg("-D").arg(&data).args(["-m", "fast", "-w", "stop"]);
         let _ = util::run_logged(c, &paths().logs().join("pg_ctl.log"), Duration::from_secs(60));
     }

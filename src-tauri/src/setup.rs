@@ -1,14 +1,17 @@
-//! İlk kurulum sihirbazı: VC++ çalışma zamanı, PATH, sağ tık menüsü,
-//! Windows açılışında çalıştırma, otomatik sanal host, paketler, cacert.pem, phpMyAdmin ayarı.
+//! İlk kurulum sihirbazı: VC++ çalışma zamanı (macOS'ta Homebrew), PATH, sağ tık menüsü,
+//! oturum açılışında çalıştırma, otomatik sanal host, paketler, cacert.pem, phpMyAdmin ayarı.
 
 use crate::i18n::{t, tf};
 use crate::kcore::{emit, log, paths, settings, update_settings};
 use crate::packages::{self, Package};
-use crate::util::{self, hidden, run_capture};
+use crate::util;
+#[cfg(windows)]
+use crate::util::{hidden, run_capture};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[cfg(windows)]
 const VC_URL: &str = "https://aka.ms/vc14/vc_redist.x64.exe";
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -24,18 +27,25 @@ pub struct SetupOptions {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SetupPlan {
+    /// "windows" | "macos" (arayüz bileşen satırlarını buna göre gösterir)
+    pub platform: String,
     pub root: String,
     /// Setup ile kurulmuş: veri klasörü sihirbazdan değiştirilebilir.
     pub installed: bool,
     pub root_has_space: bool,
     pub laragon: Option<String>,
+    /// Windows: VC++ çalışma zamanı sürümü. macOS: Homebrew öneki (ör. /opt/homebrew).
     pub vc_version: Option<String>,
+    /// Windows: VC++ yeterli. macOS: Homebrew kurulu.
     pub vc_ok: bool,
+    /// macOS: Xcode komut satırı araçları kurulu (Homebrew ister). Windows'ta her zaman true.
+    pub clt_ok: bool,
     pub packages: Vec<Package>,
     pub busy_ports: Vec<String>,
 }
 
 /// HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64 (2015-2026 ortak çalışma zamanı).
+#[cfg(windows)]
 pub fn vc_runtime() -> Option<(u32, u32, String)> {
     use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY};
     let k = winreg::RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -51,13 +61,26 @@ pub fn vc_runtime() -> Option<(u32, u32, String)> {
     Some((major, minor, ver))
 }
 
+/// macOS'ta VC++ yerine Homebrew: (sürüm yok, öneki gösterilir).
+#[cfg(not(windows))]
+pub fn vc_runtime() -> Option<(u32, u32, String)> {
+    crate::platform::brew_prefix().map(|p| (0, 0, p.display().to_string()))
+}
+
 /// VS18 (Visual Studio 2026) ile derlenmiş Apache/PHP 14.50+ ister; diğerleri 14.40+ ile çalışır.
+#[cfg(windows)]
 fn vc_required_minor(pkgs: &[String]) -> u32 {
     let vs18 = pkgs.iter().any(|p| p.to_lowercase().contains("vs18"))
         || crate::versions::installed("apache").iter().chain(crate::versions::installed("php").iter()).any(|v| v.to_lowercase().contains("vs18"));
     if vs18 { 50 } else { 40 }
 }
 
+#[cfg(not(windows))]
+pub fn vc_ok_for(_pkg_urls: &[String]) -> bool {
+    crate::platform::brew().is_some()
+}
+
+#[cfg(windows)]
 pub fn vc_ok_for(pkg_urls: &[String]) -> bool {
     match vc_runtime() {
         Some((major, minor, _)) => major > 14 || (major == 14 && minor >= vc_required_minor(pkg_urls)),
@@ -81,6 +104,11 @@ pub fn plan() -> SetupPlan {
         }
     }
     SetupPlan {
+        platform: if cfg!(windows) { "windows" } else { "macos" }.into(),
+        #[cfg(windows)]
+        clt_ok: true,
+        #[cfg(not(windows))]
+        clt_ok: crate::platform::clt_installed(),
         root_has_space: root.contains(' '),
         installed: paths().installed,
         root,
@@ -128,6 +156,7 @@ fn step(msg: &str) {
 }
 
 /// İndirilen yükleyicinin Microsoft imzalı olduğunu doğrular (yönetici olarak çalıştırılmadan önce).
+#[cfg(windows)]
 fn verify_microsoft_signature(file: &Path) -> Result<()> {
     let mut c = hidden("powershell.exe");
     c.args(["-NoProfile", "-Command"]).arg(format!(
@@ -142,6 +171,16 @@ fn verify_microsoft_signature(file: &Path) -> Result<()> {
     Ok(())
 }
 
+/// macOS: Homebrew'un resmi kurulum betiği Terminal'de açılır (parola ve onay ister). Kurulum bitince
+/// sihirbaz yeniden açılıp paketler kurulur.
+#[cfg(not(windows))]
+pub fn install_vc_runtime() -> Result<()> {
+    let home = crate::platform::home();
+    crate::platform::terminal_script("Homebrew", &home, None, crate::platform::BREW_INSTALL, true, None)?;
+    bail!(t("setup.brew_in_terminal"))
+}
+
+#[cfg(windows)]
 pub fn install_vc_runtime() -> Result<()> {
     let file = paths().tmp().join("downloads").join("VC_redist.x64.exe");
     packages::download(VC_URL, &file, "VC_redist.x64.exe")?;
@@ -222,10 +261,15 @@ pub fn run(opts: &SetupOptions, autostart: Option<&dyn Fn(bool) -> Result<()>>) 
     if opts.install_vc && !vc_ok_for(&urls) {
         attempt(&t("setup.vc"), &mut || install_vc_runtime());
     }
+    let brew_missing = cfg!(target_os = "macos") && !vc_ok_for(&urls);
 
     for pkg in selected {
         if pkg.dest.exists() {
             step(&tf("msg.already_installed", &[&pkg.name]));
+            continue;
+        }
+        if brew_missing && pkg.url.starts_with("brew:") {
+            attempt(&tf("setup.installing", &[&pkg.name]), &mut || bail!(t("setup.brew_missing")));
             continue;
         }
         let name = pkg.name.clone();
@@ -284,7 +328,8 @@ pub fn default_options(plan: &SetupPlan) -> SetupOptions {
         packages: if plan.laragon.is_some() {
             vec![]
         } else {
-            plan.packages.iter().filter(|p| p.recommended && !p.installed).map(|p| p.name.clone()).collect()
+            // macOS: Homebrew'da zaten kurulu olanlar da (yalnız bağlanır, indirme yapılmaz)
+            plan.packages.iter().filter(|p| (p.recommended && !p.installed) || packages::brew_available(p)).map(|p| p.name.clone()).collect()
         },
     }
 }
@@ -302,7 +347,8 @@ pub fn run_cli(args: &[String]) -> i32 {
     } else if opts.import_laragon {
         opts.packages.clear();
     }
-    println!("[KaradelikDev] kök: {}  VC++: {}", p.root, p.vc_version.clone().unwrap_or_else(|| "yok".into()));
+    let dep = if cfg!(windows) { "VC++" } else { "Homebrew" };
+    println!("[KaradelikDev] kök: {}  {dep}: {}", p.root, p.vc_version.clone().unwrap_or_else(|| "yok".into()));
     println!("[KaradelikDev] paketler: {}", opts.packages.join(", "));
     let errs = run(&opts, None);
     for e in &errs {

@@ -1,4 +1,6 @@
 //! Quick add: usr\packages.conf'tan indir, arşivi aç, doğru `bin\<kategori>\<sürüm>` dizinine yerleştir.
+//! macOS'ta çoğu paket `brew:<formül>` biçimindedir: Homebrew ile kurulur ve `bin/<kategori>/<ad>-<x.y>`
+//! Homebrew'un `opt/<formül>` klasörüne sembolik bağlantı olur (sürüm menüleri değişmeden çalışır).
 
 use crate::kcore::{emit, paths};
 use crate::i18n::{t, tf};
@@ -28,16 +30,28 @@ pub fn conf_path() -> PathBuf {
 
 pub fn ensure_defaults() {
     let p = paths();
+    #[cfg(windows)]
+    let (packages, crontab, user) = (
+        include_str!("../resources/defaults/packages.conf"),
+        include_str!("../resources/defaults/crontab"),
+        include_str!("../resources/defaults/user.cmd"),
+    );
+    #[cfg(not(windows))]
+    let (packages, crontab, user) = (
+        include_str!("../resources/defaults/packages.mac.conf"),
+        include_str!("../resources/defaults/crontab.mac"),
+        include_str!("../resources/defaults/user.sh"),
+    );
     let seeds: [(&str, PathBuf, &str); 5] = [
-        ("packages.conf", conf_path(), include_str!("../resources/defaults/packages.conf")),
+        ("packages.conf", conf_path(), packages),
         ("sites.conf", p.usr().join("sites.conf"), include_str!("../resources/defaults/sites.conf")),
         ("Procfile", p.usr().join("Procfile"), include_str!("../resources/defaults/Procfile")),
-        ("crontab", p.usr().join("crontab"), include_str!("../resources/defaults/crontab")),
-        ("user.cmd", p.usr().join("user.cmd"), include_str!("../resources/defaults/user.cmd")),
+        ("crontab", p.usr().join("crontab"), crontab),
+        ("user script", crate::terminal::user_script_path(), user),
     ];
     for (_, path, content) in seeds {
         if !path.exists() {
-            let _ = fs::write(path, content.replace('\n', "\r\n"));
+            let _ = fs::write(path, content.replace('\n', crate::platform::LINE_END));
         }
     }
     // Varsayılan Document Root ilk kez oluşturuluyorsa başlangıç sayfasını koy
@@ -108,6 +122,10 @@ fn strip_archive_ext(n: &str) -> String {
 pub fn dest_for(name: &str, url: &str) -> PathBuf {
     let (cat, kind) = category(name);
     let p = paths();
+    if let Some(formula) = url.strip_prefix("brew:") {
+        // Kuruluysa onu gösteren bağlantı; değilse kurulumda sürümle adlandırılacak klasörün yer tutucusu
+        return brew_link(&cat, formula).unwrap_or_else(|| p.bin().join(&cat).join(name.to_lowercase()));
+    }
     match kind {
         CatKind::App => p.apps().join(&cat),
         CatKind::Tool => p.bin().join(name.to_lowercase()),
@@ -140,12 +158,12 @@ pub fn list() -> Vec<Package> {
         let Some((n, u)) = l.split_once('=') else { continue };
         let recommended = n.trim().starts_with('*');
         let name = n.trim().trim_start_matches('*').to_string();
-        let url = u.trim().to_string();
-        if name.is_empty() || !url.starts_with("http") {
+        let url = u.trim().replace("{arch}", if cfg!(target_arch = "aarch64") { "arm64" } else { "amd64" });
+        if name.is_empty() || !(url.starts_with("http") || url.starts_with("brew:")) {
             continue;
         }
         let dest = dest_for(&name, &url);
-        let installed = dest.exists();
+        let installed = dest.exists() && (!url.starts_with("brew:") || brew_link(&category(&name).0, &url[5..]).is_some());
         out.push(Package { name, url, group: group.clone(), dest, installed, recommended });
     }
     out
@@ -246,6 +264,12 @@ pub fn extract(archive: &Path, dest: &Path, label: &str) -> Result<()> {
                     }
                     let mut f = File::create(&out)?;
                     std::io::copy(&mut entry, &mut f)?;
+                    // Unix izinleri (ör. ngrok ikilisi çalıştırılabilir kalsın)
+                    #[cfg(unix)]
+                    if let Some(mode) = entry.unix_mode() {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = fs::set_permissions(&out, fs::Permissions::from_mode(mode & 0o777));
+                    }
                 }
                 if i % 200 == 0 {
                     progress(&format!("{} {label}", t("progress.extracting")), i as u64, Some(total));
@@ -278,6 +302,14 @@ pub fn hoist(dir: &Path) -> Result<()> {
         fs::rename(&tmp, dir)?;
     }
     Ok(())
+}
+
+pub fn set_executable(_path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(_path, fs::Permissions::from_mode(0o755));
+    }
 }
 
 /// URL'yi indirip `dest` dizinine açar (veya tek dosyayı kopyalar).
@@ -318,10 +350,121 @@ pub fn fetch_into(url: &str, dest: &Path, label: &str, single_file_name: Option<
     result
 }
 
+// ---------------------------------------------------------------- Homebrew
+
+/// Formülün `opt` klasörünün adı: `mongodb/brew/mongodb-community@8.0` -> `mongodb-community@8.0`.
+fn formula_short(formula: &str) -> &str {
+    formula.rsplit('/').next().unwrap_or(formula)
+}
+
+/// `bin/<kategori>` altında bu formülün `opt` klasörüne giden bağlantı (kurulu sürüm klasörü).
+pub fn brew_link(cat: &str, formula: &str) -> Option<PathBuf> {
+    let short = formula_short(formula);
+    fs::read_dir(paths().bin().join(cat)).ok()?.flatten().map(|e| e.path()).find(|p| {
+        fs::read_link(p).map(|t| t.ends_with(Path::new("opt").join(short))).unwrap_or(false) && p.exists()
+    })
+}
+
+/// `opt/<formül>` bağlantısının gösterdiği Cellar sürümü: "8.4.26", "8.5.11_1" -> "8.4", "8.5".
+#[cfg_attr(windows, allow(dead_code))]
+fn major_minor(version: &str) -> String {
+    let nums: Vec<&str> = version.split(['.', '_', '-']).take_while(|p| p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty()).take(2).collect();
+    nums.join(".")
+}
+
+/// Homebrew ile kurar (kuruluysa yalnız bağlar) ve `bin/<kategori>/<ad>-<x.y>` bağlantısını oluşturur.
+#[cfg(not(windows))]
+fn brew_install(cat: &str, formula: &str, label: &str) -> Result<PathBuf> {
+    use std::io::BufRead;
+    let brew = crate::platform::brew().ok_or_else(|| anyhow!(t("setup.brew_missing")))?;
+    let prefix = crate::platform::brew_prefix().unwrap();
+    let short = formula_short(formula);
+    let opt = prefix.join("opt").join(short);
+    if !opt.exists() {
+        let log = paths().logs().join("brew.log");
+        // (argümanlar, hata olursa dur)
+        let mut steps: Vec<(Vec<String>, bool)> = vec![];
+        // Üçüncü taraf tap (ör. mongodb/brew/...) önce eklenir. Homebrew 6+ güvenilmeyen tap'lerden formül yüklemez;
+        // kullanıcı paketi katalogdan seçtiği için tap'e (bağımlılıklar da oradan gelir, ör. mongodb-database-tools)
+        // güvenilir. Eski Homebrew'da `brew trust` yoktur; o adımın hatası yok sayılır.
+        let parts: Vec<&str> = formula.split('/').collect();
+        if parts.len() == 3 {
+            let tap = format!("{}/{}", parts[0], parts[1]);
+            steps.push((vec!["tap".into(), tap.clone()], true));
+            steps.push((vec!["trust".into(), "--tap".into(), tap], false));
+        }
+        steps.push((vec!["install".into(), formula.into()], true));
+        for (args, required) in steps {
+            util::append_line(&log, &format!("$ brew {}", args.join(" ")));
+            let mut c = crate::platform::shell(&format!(
+                "{} {} 2>&1",
+                crate::platform::sh_quote(&brew.display().to_string()),
+                args.iter().map(|a| crate::platform::sh_quote(a)).collect::<Vec<_>>().join(" ")
+            ));
+            c.env("HOMEBREW_NO_ENV_HINTS", "1").env("NONINTERACTIVE", "1").stdout(std::process::Stdio::piped()).stdin(std::process::Stdio::null());
+            let mut child = c.spawn().context("brew")?;
+            let out = child.stdout.take().unwrap();
+            let mut tail = Vec::new();
+            for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
+                util::append_line(&log, &line);
+                let l = line.trim().to_string();
+                if !l.is_empty() {
+                    progress(&format!("Homebrew {label}: {}", l.chars().take(90).collect::<String>()), 0, None);
+                    tail.push(l);
+                    if tail.len() > 6 {
+                        tail.remove(0);
+                    }
+                }
+            }
+            if !child.wait()?.success() && required {
+                bail!("brew {}:\n{}", args.join(" "), tail.join("\n"));
+            }
+        }
+    }
+    let real = fs::canonicalize(&opt).with_context(|| opt.display().to_string())?;
+    let version = real.file_name().map(|v| v.to_string_lossy().to_string()).unwrap_or_default();
+    let base = short.split('@').next().unwrap_or(short);
+    let mm = major_minor(&version);
+    let folder = if mm.is_empty() { base.to_string() } else { format!("{base}-{mm}") };
+    let dest = paths().bin().join(cat).join(folder);
+    fs::create_dir_all(dest.parent().unwrap())?;
+    if fs::symlink_metadata(&dest).is_ok() {
+        fs::remove_file(&dest).with_context(|| dest.display().to_string())?;
+    }
+    std::os::unix::fs::symlink(&opt, &dest).with_context(|| dest.display().to_string())?;
+    crate::kcore::log(&format!("Homebrew {formula} {version} -> {}", dest.display()));
+    Ok(dest)
+}
+
+#[cfg(windows)]
+fn brew_install(_cat: &str, _formula: &str, _label: &str) -> Result<PathBuf> {
+    bail!("Homebrew yalnız macOS'ta")
+}
+
+/// Homebrew'da kurulu ama henüz bağlanmamış katalog paketleri (sihirbaz bunları varsayılan olarak seçer).
+pub fn brew_available(pkg: &Package) -> bool {
+    match (pkg.url.strip_prefix("brew:"), brew_prefix_any()) {
+        (Some(f), Some(prefix)) => !pkg.installed && prefix.join("opt").join(formula_short(f)).exists(),
+        _ => false,
+    }
+}
+
+fn brew_prefix_any() -> Option<PathBuf> {
+    #[cfg(not(windows))]
+    return crate::platform::brew_prefix();
+    #[cfg(windows)]
+    None
+}
+
 pub fn install(name: &str) -> Result<PathBuf> {
     let pkg = list().into_iter().find(|p| p.name == name).ok_or_else(|| anyhow!("{name}?"))?;
     if pkg.installed {
         bail!(tf("msg.already_installed", &[&pkg.name]));
+    }
+    if let Some(formula) = pkg.url.strip_prefix("brew:") {
+        let dest = brew_install(&category(&pkg.name).0, formula, &pkg.name)?;
+        progress_done();
+        return Ok(dest);
     }
     let lower = pkg.name.to_lowercase();
     // Tek dosyalık araçlar bilinen adla kaydedilir (ör. cloudflared-windows-amd64.exe -> cloudflared.exe);
@@ -338,7 +481,13 @@ pub fn install(name: &str) -> Result<PathBuf> {
     };
     fetch_into(&pkg.url, &pkg.dest, &pkg.name, single, None)?;
     if lower == "composer" {
-        fs::write(pkg.dest.join("composer.bat"), "@php \"%~dp0composer.phar\" %*\r\n")?;
+        if cfg!(windows) {
+            fs::write(pkg.dest.join("composer.bat"), "@php \"%~dp0composer.phar\" %*\r\n")?;
+        } else {
+            let sh = pkg.dest.join("composer");
+            fs::write(&sh, "#!/bin/sh\nexec php \"$(dirname \"$0\")/composer.phar\" \"$@\"\n")?;
+            set_executable(&sh);
+        }
     }
     Ok(pkg.dest)
 }
@@ -346,6 +495,14 @@ pub fn install(name: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn brew_names() {
+        assert_eq!(major_minor("8.4.26"), "8.4");
+        assert_eq!(major_minor("8.5.11_1"), "8.5");
+        assert_eq!(major_minor("27"), "27");
+        assert_eq!(formula_short("mongodb/brew/mongodb-community@8.0"), "mongodb-community@8.0");
+    }
 
     #[test]
     fn names() {

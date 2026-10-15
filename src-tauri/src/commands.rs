@@ -79,7 +79,7 @@ pub fn run_action_values(id: String, values: Vec<String>) {
 #[tauri::command]
 pub fn show_menu(window: Window, x: f64, y: f64) -> Result<(), String> {
     let app = window.app_handle().clone();
-    let menu = crate::menu::build(&app, &services::statuses()).map_err(|e| e.to_string())?;
+    let menu = crate::menu::build_popup(&app, &services::statuses()).map_err(|e| e.to_string())?;
     window.popup_menu_at(&menu, LogicalPosition::new(x, y)).map_err(|e| e.to_string())
 }
 
@@ -90,6 +90,10 @@ pub fn get_settings() -> Settings {
 
 #[derive(Serialize)]
 pub struct Meta {
+    /// "windows" | "macos"
+    platform: String,
+    /// Tercihler > Terminal seçenekleri (değer, etiket)
+    terminals: Vec<(String, String)>,
     languages: Vec<(String, String)>,
     autostart: bool,
     context_menu: bool,
@@ -100,7 +104,24 @@ pub struct Meta {
 #[tauri::command]
 pub fn get_meta(app: tauri::AppHandle) -> Meta {
     use tauri_plugin_autostart::ManagerExt;
+    let terminals: Vec<(&str, String)> = if cfg!(windows) {
+        vec![
+            ("auto", crate::i18n::t("prefs.terminal_auto")),
+            ("wt", "Windows Terminal".into()),
+            ("cmd", "cmd".into()),
+            ("powershell", "PowerShell".into()),
+            ("cmder", "Cmder".into()),
+        ]
+    } else {
+        let mut v = vec![("auto", crate::i18n::t("prefs.terminal_auto")), ("terminal", "Terminal".into())];
+        if std::path::Path::new("/Applications/iTerm.app").exists() {
+            v.push(("iterm", "iTerm2".into()));
+        }
+        v
+    };
     Meta {
+        platform: if cfg!(windows) { "windows" } else { "macos" }.into(),
+        terminals: terminals.into_iter().map(|(a, b)| (a.to_string(), b)).collect(),
         languages: crate::i18n::LANGUAGES.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         context_menu: crate::winenv::context_menu_installed(),
@@ -195,7 +216,9 @@ pub async fn pick_folder(app: tauri::AppHandle, current: String) -> Option<Strin
 #[tauri::command]
 pub async fn pick_file(app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    app.dialog().file().add_filter("exe", &["exe", "cmd", "bat"]).blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string())
+    let d = app.dialog().file();
+    let d = if cfg!(windows) { d.add_filter("exe", &["exe", "cmd", "bat"]) } else { d.add_filter("app", &["app"]).set_directory("/Applications") };
+    d.blocking_pick_file().and_then(|p| p.into_path().ok()).map(|p| p.display().to_string())
 }
 
 #[tauri::command]
@@ -280,6 +303,7 @@ pub async fn db_overview() -> serde_json::Value {
         "phpmyadmin": web("phpmyadmin"),
         "adminer": web("adminer"),
         "heidisql": crate::versions::tool("heidisql", "heidisql.exe").is_some(),
+        "db_tool": crate::actions::db_tool_name(),
     })
 }
 

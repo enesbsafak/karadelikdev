@@ -1,0 +1,6 @@
+# KaradelikDev zamanlanmış görevleri
+# Biçim: dakika saat ayın-günü ay haftanın-günü KOMUT
+# Komutlar KaradelikDev ortamında (PATH'te php, node...) sh ile çalışır. Çıktı: logs\cron.log
+#
+# Örnek - Laravel zamanlayıcısı her dakika:
+# * * * * * php /Users/ad/KaradelikDev/www/projem/artisan schedule:run

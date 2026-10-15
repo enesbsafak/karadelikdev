@@ -4,10 +4,13 @@
 use crate::kcore::{log, paths};
 use crate::util::{self, split_args};
 use anyhow::{anyhow, Result};
+#[cfg(windows)]
 use parking_lot::Mutex;
 use serde::Serialize;
+#[cfg(windows)]
 use std::collections::HashMap;
 use std::path::PathBuf;
+#[cfg(windows)]
 use std::process::Child;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -20,6 +23,7 @@ pub struct Proc {
     pub env: Vec<(String, String)>,
 }
 
+#[cfg(windows)]
 static RUNNING: once_cell::sync::Lazy<Mutex<HashMap<String, Child>>> = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub fn path() -> PathBuf {
@@ -70,10 +74,55 @@ pub fn list() -> Vec<Proc> {
 }
 
 fn resolve(p: &str) -> PathBuf {
-    let pb = PathBuf::from(p.replace('/', "\\"));
+    let pb = PathBuf::from(if cfg!(windows) { p.replace('/', "\\") } else { p.to_string() });
     if pb.is_absolute() { pb } else { paths().root.join(pb) }
 }
 
+/// macOS: Procfile girdisi Terminal'de kendi penceresinde çalışır; "Tümünü kapat" için betiğin PID'i
+/// `tmp/procfile/<ad>.pid` dosyasına yazılır.
+#[cfg(not(windows))]
+pub fn run(name: &str) -> Result<()> {
+    let q = |s: &str| crate::platform::sh_quote(s);
+    let p = list().into_iter().find(|x| x.name == name).ok_or_else(|| anyhow!("{name}?"))?;
+    let env_cmd = crate::terminal::write_env_cmd()?;
+    let cwd = p.pwd.as_deref().map(resolve).unwrap_or_else(|| paths().root.clone());
+    let mut body = Vec::new();
+    if let Some(f) = &p.env_file {
+        if let Ok(text) = std::fs::read_to_string(resolve(f)) {
+            for l in text.lines().map(str::trim).filter(|l| l.contains('=') && !l.starts_with('#')) {
+                let (k, v) = l.split_once('=').unwrap();
+                body.push(format!("export {}={}", k.trim(), q(v.trim().trim_matches('"'))));
+            }
+        }
+    }
+    for (k, v) in &p.env {
+        body.push(format!("export {k}={}", q(v)));
+    }
+    // Windows'taki `a & b` zinciri kabukta `a; b` olarak çalışır
+    body.push(p.command.replace(" & ", "; "));
+    let dir = paths().tmp().join("procfile");
+    std::fs::create_dir_all(&dir)?;
+    let pid_file = dir.join(format!("{}.pid", safe_name(&p.name)));
+    stop_one(&pid_file);
+    crate::platform::terminal_script(&p.name, &cwd, Some(&env_cmd), &body.join("\n"), true, Some(&pid_file))?;
+    log(&format!("Procfile: {} başlatıldı", p.name));
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn safe_name(name: &str) -> String {
+    name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect()
+}
+
+#[cfg(not(windows))]
+fn stop_one(pid_file: &std::path::Path) {
+    if let Some(pid) = std::fs::read_to_string(pid_file).ok().and_then(|s| s.trim().parse::<u32>().ok()) {
+        util::kill_tree(pid);
+    }
+    let _ = std::fs::remove_file(pid_file);
+}
+
+#[cfg(windows)]
 pub fn run(name: &str) -> Result<()> {
     let p = list().into_iter().find(|x| x.name == name).ok_or_else(|| anyhow!("{name}?"))?;
     let env_cmd = crate::terminal::write_env_cmd()?;
@@ -106,7 +155,18 @@ pub fn autorun() {
     }
 }
 
+/// "Close all": Procfile pencerelerindeki komutları sonlandırır.
+#[cfg(not(windows))]
+pub fn stop_all() {
+    if let Ok(rd) = std::fs::read_dir(paths().tmp().join("procfile")) {
+        for e in rd.flatten() {
+            stop_one(&e.path());
+        }
+    }
+}
+
 /// "Close all": Procfile konsollarını kapatır.
+#[cfg(windows)]
 pub fn stop_all() {
     for (_, mut c) in RUNNING.lock().drain() {
         util::kill_tree(c.id());

@@ -9,7 +9,9 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 // İşletim sistemine bağlı süreç yardımcıları platform modülündedir; çağıranlar util üzerinden kullanır.
-pub use crate::platform::{hidden, kill_tree, listeners, open_console, run_elevated, run_elevated_code, which};
+pub use crate::platform::{hidden, kill_tree, listeners, open_console, which};
+#[cfg(windows)]
+pub use crate::platform::{run_elevated, run_elevated_code};
 
 /// Komutu çalıştırır, çıkış kodunu ve birleşik stdout+stderr çıktısını döndürür.
 pub fn run_capture(mut cmd: Command) -> Result<(i32, String)> {
@@ -75,6 +77,9 @@ pub fn spawn_bg(
     c.args(args).stdin(Stdio::null());
     if let Some(d) = cwd {
         c.current_dir(d);
+    } else if cfg!(target_os = "macos") {
+        // Program Homebrew'da (bağlantıyla); çalışma dizini kökte olsun ki süreç bize ait tanınsın (pid_mentions_root)
+        c.current_dir(crate::kcore::paths().tmp());
     } else if let Some(p) = program.parent() {
         c.current_dir(p);
     }
@@ -122,7 +127,15 @@ pub fn process_path(pid: u32) -> Option<PathBuf> {
         true,
         ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
     );
-    sys.process(p).and_then(|pr| pr.exe().map(Path::to_path_buf))
+    let path = sys.process(p).and_then(|pr| pr.exe().map(Path::to_path_buf));
+    // macOS: başka kullanıcının (ör. Valet/Herd'in root nginx'i) sürecinin yolu sysinfo ile okunamaz; ps okuyabilir
+    #[cfg(target_os = "macos")]
+    if path.is_none() {
+        let mut c = hidden("/bin/ps");
+        c.args(["-o", "comm=", "-p", &pid.to_string()]);
+        return run_capture(c).ok().map(|(_, o)| o.trim().to_string()).filter(|o| !o.is_empty()).map(PathBuf::from);
+    }
+    path
 }
 
 /// Belirtilen exe'den çalışan ve KaradelikDev köküne ait (komut satırında veya çalışma dizininde
@@ -144,18 +157,34 @@ pub fn pids_by_exe(exe: &Path, root: &Path) -> Vec<u32> {
     if let Ok(real) = std::fs::canonicalize(exe) {
         wanted.push(low(&crate::paths::strip_unc(real)));
     }
-    let root_l = low(root);
-    let root_f = root_l.replace('\\', "/");
     sys.processes()
         .iter()
         .filter(|(_, p)| p.exe().map(|e| wanted.contains(&low(e))).unwrap_or(false))
-        .filter(|(_, p)| {
-            let cmd = p.cmd().iter().map(|a| a.to_string_lossy().to_lowercase()).collect::<Vec<_>>().join(" ");
-            let cwd = p.cwd().map(low).unwrap_or_default();
-            cmd.contains(&root_l) || cmd.contains(&root_f) || cwd.starts_with(&root_l)
-        })
+        .filter(|(_, p)| mentions_root(p, root))
         .map(|(pid, _)| pid.as_u32())
         .collect()
+}
+
+/// Sürecin komut satırında veya çalışma dizininde KaradelikDev kökü geçiyor mu?
+pub fn pid_mentions_root(pid: u32, root: &Path) -> bool {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+    let mut sys = System::new();
+    let p = Pid::from_u32(pid);
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[p]),
+        true,
+        ProcessRefreshKind::nothing().with_cmd(UpdateKind::Always).with_cwd(UpdateKind::Always),
+    );
+    sys.process(p).map(|pr| mentions_root(pr, root)).unwrap_or(false)
+}
+
+fn mentions_root(p: &sysinfo::Process, root: &Path) -> bool {
+    let low = |p: &Path| p.to_string_lossy().to_lowercase();
+    let root_l = low(root);
+    let root_f = root_l.replace('\\', "/");
+    let cmd = p.cmd().iter().map(|a| a.to_string_lossy().to_lowercase()).collect::<Vec<_>>().join(" ");
+    let cwd = p.cwd().map(low).unwrap_or_default();
+    cmd.contains(&root_l) || cmd.contains(&root_f) || cwd.starts_with(&root_l)
 }
 
 /// Dizinde en fazla `depth` seviye aşağıda dosya arar (büyük/küçük harf duyarsız).

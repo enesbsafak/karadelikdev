@@ -49,9 +49,19 @@ fn build_sub(app: &AppHandle, text: &str, nodes: &[Node]) -> tauri::Result<Subme
     b.build()
 }
 
+/// Tepsi / menü çubuğu simgesinin menüsü.
 pub fn build(app: &AppHandle, st: &[SvcStatus]) -> tauri::Result<Menu<Wry>> {
+    build_nodes(app, tree(st, true))
+}
+
+/// Penceredeki "Menü" düğmesi ve sağ tık menüsü.
+pub fn build_popup(app: &AppHandle, st: &[SvcStatus]) -> tauri::Result<Menu<Wry>> {
+    build_nodes(app, tree(st, false))
+}
+
+fn build_nodes(app: &AppHandle, nodes: Vec<Node>) -> tauri::Result<Menu<Wry>> {
     let mut b = MenuBuilder::new(app);
-    for n in tree(st) {
+    for n in nodes {
         b = match n {
             Node::Item(id, text, en) => b.item(&MenuItemBuilder::with_id(id, text).enabled(en).build(app)?),
             Node::Check(id, text, on) => b.item(&CheckMenuItemBuilder::with_id(id, text).checked(on).build(app)?),
@@ -62,7 +72,66 @@ pub fn build(app: &AppHandle, st: &[SvcStatus]) -> tauri::Result<Menu<Wry>> {
     b.build()
 }
 
-/// Tepsi menüsünü ve ikonunu yeniler.
+/// Tepsi / menü çubuğu simgesi: Windows'ta renkli; macOS'ta menü çubuğuna uyan tek renkli şablon görüntü
+/// (koyu/açık temaya göre sistem boyar). Çalışan servis varken dolu, yokken boş halka.
+pub fn tray_icon(running: bool) -> &'static [u8] {
+    match (cfg!(target_os = "macos"), running) {
+        (true, true) => include_bytes!("../icons/tray-mac-on.png"),
+        (true, false) => include_bytes!("../icons/tray-mac-off.png"),
+        (false, true) => include_bytes!("../icons/tray-on.png"),
+        (false, false) => include_bytes!("../icons/tray-off.png"),
+    }
+}
+
+/// macOS menü çubuğu: uygulama menüsü, Düzen (giriş alanlarında ⌘C/⌘V için gerekli), KaradelikDev menü ağacı, Pencere.
+#[cfg(target_os = "macos")]
+pub fn app_menu(app: &AppHandle, st: &[SvcStatus]) -> tauri::Result<Menu<Wry>> {
+    use tauri::menu::AboutMetadataBuilder;
+    let about = AboutMetadataBuilder::new()
+        .name(Some("KaradelikDev"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .copyright(Some("© 2026 enesbsafak · MIT"))
+        .website(Some("https://github.com/enesbsafak/karadelikdev"))
+        .build();
+    let app_sub = SubmenuBuilder::new(app, "KaradelikDev")
+        .about_with_text(t("mac.about"), Some(about))
+        .separator()
+        .item(&MenuItemBuilder::with_id("prefs", t("menu.preferences")).accelerator("CmdOrCtrl+,").build(app)?)
+        .item(&MenuItemBuilder::with_id("app_update", t("menu.app_update_check")).build(app)?)
+        .separator()
+        .services_with_text(t("mac.services"))
+        .separator()
+        .hide_with_text(t("mac.hide"))
+        .hide_others_with_text(t("mac.hide_others"))
+        .show_all_with_text(t("mac.show_all"))
+        .separator()
+        // Çıkış servisleri durdurur (Menü > Çıkış ile aynı)
+        .item(&MenuItemBuilder::with_id("exit", t("mac.quit")).accelerator("CmdOrCtrl+Q").build(app)?)
+        .build()?;
+    let edit = SubmenuBuilder::new(app, t("mac.edit"))
+        .undo_with_text(t("mac.undo"))
+        .redo_with_text(t("mac.redo"))
+        .separator()
+        .cut_with_text(t("mac.cut"))
+        .copy_with_text(t("mac.copy"))
+        .paste_with_text(t("mac.paste"))
+        .select_all_with_text(t("mac.select_all"))
+        .build()?;
+    let main = build_sub(app, &t("btn.menu"), &tree(st, false))?;
+    let window = SubmenuBuilder::new(app, t("mac.window"))
+        .minimize_with_text(t("mac.minimize"))
+        .close_window_with_text(t("mac.close_window"))
+        .separator()
+        .item(&MenuItemBuilder::with_id("show", "KaradelikDev").build(app)?)
+        .item(&MenuItemBuilder::with_id("projects", t("projects.title")).build(app)?)
+        .item(&MenuItemBuilder::with_id("db", t("db.title")).build(app)?)
+        .item(&MenuItemBuilder::with_id("packages", t("packages.title")).build(app)?)
+        .item(&MenuItemBuilder::with_id("logs", t("logs.title")).build(app)?)
+        .build()?;
+    MenuBuilder::new(app).item(&app_sub).item(&edit).item(&main).item(&window).build()
+}
+
+/// Tepsi menüsünü ve ikonunu yeniler (macOS'ta menü çubuğundaki uygulama menüsünü de).
 pub fn refresh(st: &[SvcStatus]) {
     let Some(app) = app() else { return };
     let app2 = app.clone();
@@ -73,10 +142,14 @@ pub fn refresh(st: &[SvcStatus]) {
                 let _ = tray.set_menu(Some(menu));
             }
             let on = st.iter().any(|s| s.running);
-            let bytes: &[u8] = if on { include_bytes!("../icons/tray-on.png") } else { include_bytes!("../icons/tray-off.png") };
-            if let Ok(img) = tauri::image::Image::from_bytes(bytes) {
+            if let Ok(img) = tauri::image::Image::from_bytes(tray_icon(on)) {
                 let _ = tray.set_icon(Some(img));
+                let _ = tray.set_icon_as_template(cfg!(target_os = "macos"));
             }
+        }
+        #[cfg(target_os = "macos")]
+        if let Ok(m) = app_menu(&app2, &st) {
+            let _ = app2.set_menu(m);
         }
     });
 }
@@ -93,7 +166,7 @@ fn version_menu(cat: &str) -> Node {
         items.push(disabled(t("menu.not_installed")));
     }
     items.push(Node::Sep);
-    items.push(open(&paths().bin().join(cat), format!("dir: bin\\{cat}")));
+    items.push(open(&paths().bin().join(cat), format!("dir: {}", crate::platform::rel(&["bin", cat]))));
     items.push(item(format!("quickadd:{cat}"), t("menu.quick_add_more")));
     sub(title, items)
 }
@@ -115,11 +188,17 @@ fn svc_head(st: &[SvcStatus], svc: Svc) -> Vec<Node> {
     v
 }
 
-fn tree(st: &[SvcStatus]) -> Vec<Node> {
+fn tree(st: &[SvcStatus], tray: bool) -> Vec<Node> {
     let p = paths();
     let s = settings();
     let projects = crate::vhosts::projects();
     let mut root = vec![];
+
+    // macOS: menü çubuğu simgesine tıklayınca menü açılır (Windows'taki sol tık = pencere yerine ilk öğe)
+    if cfg!(target_os = "macos") && tray {
+        root.push(item("show", t("menu.show_window")));
+        root.push(Node::Sep);
+    }
 
     // ---- KaradelikDev
     let mut procs: Vec<Node> = crate::procfile::list().into_iter().map(|x| item(format!("proc:{}", x.name), x.name)).collect();
@@ -134,13 +213,13 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
             item("projects", t("projects.title")),
             item("packages", t("packages.title")),
             item("logs", t("logs.title")),
-            item("terminal", format!("{}  (Ctrl+Alt+T)", t("btn.terminal"))),
+            item("terminal", format!("{}  ({})", t("btn.terminal"), crate::platform::TERMINAL_SHORTCUT)),
             item("root", t("btn.root")),
             Node::Sep,
             sub("Procfile", procs),
             Node::Sep,
             open(&p.usr(), "dir: usr"),
-            item(format!("edit:{}", p.usr().join("user.cmd").display()), t("menu.startup_file")),
+            item(format!("edit:{}", crate::terminal::user_script_path().display()), t("menu.startup_file")),
             item(format!("edit:{}", p.ini().display()), t("menu.settings_file")),
             item(format!("edit:{}", p.usr().join("crontab").display()), "crontab"),
             Node::Sep,
@@ -216,11 +295,22 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
         ("tool:notepad++", "notepad++", "notepad++.exe", "Notepad++"),
         ("tool:vscode", "vscode", "Code.exe", "VS Code"),
     ] {
-        if versions::tool(cat, exe).is_some() {
+        if cfg!(windows) && versions::tool(cat, exe).is_some() {
             tools.push(item(id, title));
         }
     }
-    tools.push(item("netstat", "netstat"));
+    // macOS: /Applications altındaki araçlar
+    for (id, app, title) in [
+        ("tool:sequelace", "Sequel Ace.app", "Sequel Ace"),
+        ("tool:tableplus", "TablePlus.app", "TablePlus"),
+        ("tool:dbeaver", "DBeaver.app", "DBeaver"),
+        ("tool:vscode", "Visual Studio Code.app", "VS Code"),
+    ] {
+        if cfg!(target_os = "macos") && std::path::Path::new("/Applications").join(app).exists() {
+            tools.push(item(id, title));
+        }
+    }
+    tools.push(item("netstat", if cfg!(windows) { "netstat" } else { "lsof (portlar)" }));
     tools.push(sub(
         "SSL",
         vec![
@@ -250,7 +340,7 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
     tools.push(item("hosts_edit", t("menu.edit_hosts")));
     let mut tpls: Vec<Node> = crate::templates::NAMES.iter().map(|n| item(format!("tpl:{n}"), n.to_string())).collect();
     tpls.push(Node::Sep);
-    tpls.push(open(&p.usr().join("tpl"), "dir: usr\\tpl"));
+    tpls.push(open(&p.usr().join("tpl"), format!("dir: {}", crate::platform::rel(&["usr", "tpl"]))));
     tools.push(sub(t("menu.templates"), tpls));
     root.push(sub(t("menu.tools"), tools));
     root.push(Node::Sep);
@@ -267,7 +357,7 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
         item(format!("edit:{}", services::apache::error_log().display()), "error.log"),
         item(format!("edit:{}", services::apache::access_log().display()), "access.log"),
         Node::Sep,
-        open(&p.etc().join("apache2"), "dir: etc\\apache2"),
+        open(&p.etc().join("apache2"), format!("dir: {}", crate::platform::rel(&["etc", "apache2"]))),
         open(&p.etc().join("apache2").join("alias"), "dir: alias"),
         item("vhosts_delete_auto", t("menu.delete_auto")),
     ]);
@@ -285,7 +375,7 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
         item(format!("edit:{}", p.logs().join("nginx_error.log").display()), "error.log"),
         item(format!("edit:{}", p.logs().join("nginx_access.log").display()), "access.log"),
         Node::Sep,
-        open(&p.etc().join("nginx"), "dir: etc\\nginx"),
+        open(&p.etc().join("nginx"), format!("dir: {}", crate::platform::rel(&["etc", "nginx"]))),
     ]);
     root.push(sub("Nginx", nginx));
 
@@ -298,6 +388,8 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
     }
     if versions::tool("heidisql", "heidisql.exe").is_some() {
         my.push(item("tool:heidisql", "HeidiSQL"));
+    } else if let Some(name) = crate::actions::db_tool_name() {
+        my.push(item("tool:dbtool", name));
     }
     if !my.is_empty() {
         my.push(Node::Sep);

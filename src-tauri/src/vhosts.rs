@@ -142,9 +142,9 @@ pub fn sync() -> Result<SyncReport> {
                 "PHP_HANDLER",
                 php_port
                     .map(|port| {
-                        format!(
-                            "    <FilesMatch \"\\.php$\">\n        SetHandler \"proxy:balancer://kdphp{port}/\"\n        ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^(?:proxy:balancer://[^/]+)?/([A-Za-z]:/.*)$#\" SCRIPT_FILENAME \"$1\"\n    </FilesMatch>\n"
-                        )
+                        // Windows'ta açıklama satırı olmadan (önceki sürümlerle aynı çıktı)
+                        let fix: String = crate::templates::fcgi_script_fix("        ").lines().filter(|l| !l.trim_start().starts_with('#')).map(|l| format!("{l}\n")).collect();
+                        format!("    <FilesMatch \"\\.php$\">\n        SetHandler \"proxy:balancer://kdphp{port}/\"\n{fix}    </FilesMatch>\n")
                     })
                     .unwrap_or_default(),
             ));

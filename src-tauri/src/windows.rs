@@ -40,6 +40,15 @@ pub struct DialogSpec {
     pub danger: bool,
 }
 
+/// macOS'ta pencereler arayüzle uyumlu koyu başlık çubuğuyla açılır (Windows'ta önceki görünüm korunur).
+fn themed<'a>(b: WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle>) -> WebviewWindowBuilder<'a, tauri::Wry, tauri::AppHandle> {
+    if cfg!(target_os = "macos") {
+        b.theme(Some(tauri::Theme::Dark))
+    } else {
+        b
+    }
+}
+
 static DIALOGS: once_cell::sync::Lazy<Mutex<HashMap<String, DialogSpec>>> = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub fn dialog_spec(label: &str) -> Option<DialogSpec> {
@@ -64,7 +73,7 @@ pub fn open_dialog(spec: DialogSpec) {
     // Windows'ta pencere ana iş parçacığındaki bir olay işleyicisinden oluşturulursa WebView2 kilitlenir
     // (Tauri: WebviewWindowBuilder::build belgesi); bu yüzden ayrı iş parçacığından oluşturulur.
     std::thread::spawn(move || {
-        let w = WebviewWindowBuilder::new(&app2, &label, WebviewUrl::App("dialog.html".into()))
+        let w = themed(WebviewWindowBuilder::new(&app2, &label, WebviewUrl::App("dialog.html".into())))
             .title(title)
             .inner_size(440.0, height)
             .resizable(false)
@@ -123,7 +132,7 @@ pub fn open_setup() {
     // Windows'ta pencere ana iş parçacığındaki bir olay işleyicisinden oluşturulursa WebView2 kilitlenir
     // (Tauri: WebviewWindowBuilder::build belgesi); bu yüzden ayrı iş parçacığından oluşturulur.
     std::thread::spawn(move || {
-        let _ = WebviewWindowBuilder::new(&app2, "setup", WebviewUrl::App("setup.html".into()))
+        let _ = themed(WebviewWindowBuilder::new(&app2, "setup", WebviewUrl::App("setup.html".into())))
             .title(crate::i18n::t("setup.title"))
             .inner_size(640.0, 660.0)
             .resizable(false)
@@ -143,7 +152,7 @@ pub fn open_databases() {
     }
     let app2 = app.clone();
     std::thread::spawn(move || {
-        let _ = WebviewWindowBuilder::new(&app2, "databases", WebviewUrl::App("databases.html".into()))
+        let _ = themed(WebviewWindowBuilder::new(&app2, "databases", WebviewUrl::App("databases.html".into())))
             .title(crate::i18n::t("db.title"))
             .inner_size(780.0, 600.0)
             .min_inner_size(640.0, 480.0)
@@ -163,7 +172,7 @@ pub fn open_page(label: &'static str, title_key: &'static str, width: f64, heigh
     }
     let app2 = app.clone();
     std::thread::spawn(move || {
-        let _ = WebviewWindowBuilder::new(&app2, label, WebviewUrl::App(format!("{label}.html").into()))
+        let _ = themed(WebviewWindowBuilder::new(&app2, label, WebviewUrl::App(format!("{label}.html").into())))
             .title(crate::i18n::t(title_key))
             .inner_size(width, height)
             .min_inner_size(600.0, 420.0)
@@ -189,7 +198,7 @@ pub fn open_prefs() {
     // Windows'ta pencere ana iş parçacığındaki bir olay işleyicisinden oluşturulursa WebView2 kilitlenir
     // (Tauri: WebviewWindowBuilder::build belgesi); bu yüzden ayrı iş parçacığından oluşturulur.
     std::thread::spawn(move || {
-        let _ = WebviewWindowBuilder::new(&app2, "prefs", WebviewUrl::App("prefs.html".into()))
+        let _ = themed(WebviewWindowBuilder::new(&app2, "prefs", WebviewUrl::App("prefs.html".into())))
             .title(crate::i18n::t("menu.preferences").trim_end_matches('.').to_string())
             .inner_size(600.0, 600.0)
             .resizable(false)

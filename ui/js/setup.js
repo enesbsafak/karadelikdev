@@ -30,6 +30,10 @@ function render(data) {
     : T('setup.vc_missing');
   $('install_vc').disabled = plan.vc_ok;
   if (plan.vc_ok) $('install_vc').checked = true;
+  // macOS: Homebrew yoksa brew: paketleri kurulamaz; Homebrew Terminal'de kurulduktan sonra yeniden denetlenir
+  const brewMissing = plan.platform === 'macos' && !plan.vc_ok;
+  $('brewWarn').classList.toggle('hidden', !brewMissing);
+  if (brewMissing) $('brewText').textContent = plan.clt_ok ? T('setup.brew_missing') : `${T('setup.brew_missing')}. ${T('setup.clt_missing')}`;
 
   const box = $('packages');
   box.textContent = '';
@@ -39,7 +43,8 @@ function render(data) {
       group = p.group;
       box.append(el('div', { class: 'pkg-group' }, group));
     }
-    const input = el('input', { type: 'checkbox', 'data-pkg': p.name, checked: d.packages.includes(p.name), disabled: p.installed });
+    const needsBrew = brewMissing && p.url.startsWith('brew:');
+    const input = el('input', { type: 'checkbox', 'data-pkg': p.name, checked: d.packages.includes(p.name) && !needsBrew, disabled: p.installed || needsBrew });
     input.addEventListener('change', updateSummary);
     box.append(el('label', { class: 'check pkg' },
       input,
@@ -75,6 +80,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   render(await invoke('setup_plan'));
 
   $('skip').addEventListener('click', () => invoke('setup_finish'));
+  $('recheck').addEventListener('click', async () => render(await invoke('setup_plan')));
   $('pickRoot').addEventListener('click', async () => {
     const p = await invoke('pick_folder', { current: $('dataRoot').value });
     if (!p || p === $('dataRoot').value) return;

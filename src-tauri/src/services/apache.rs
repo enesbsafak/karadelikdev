@@ -29,7 +29,7 @@ pub fn access_log() -> PathBuf {
 /// Tüm Apache konfigürasyonunu yazar. php-cgi havuzu gerekiyorsa true döner.
 pub fn write_conf() -> Result<bool> {
     let exe = exe().ok_or_else(|| anyhow!(tf("msg.not_installed", &["Apache"])))?;
-    let server_root = exe.parent().and_then(|p| p.parent()).ok_or_else(|| anyhow!("ServerRoot"))?.to_path_buf();
+    let (server_root, mime_types) = server_root(&exe)?;
     let p = paths();
     let s = settings();
     let cfg = s.svc("apache");
@@ -51,7 +51,10 @@ pub fn write_conf() -> Result<bool> {
         ("SSL_DIR", fwd(&p.ssl())),
         ("LOG_DIR", fwd(&p.logs())),
         ("SERVER_ROOT", fwd(&server_root)),
+        ("MIME_TYPES", fwd(&mime_types)),
+        ("LOCAL_ONLY", local_only_block(&[cfg.port, cfg.ssl_port])),
     ];
+    let _ = std::fs::create_dir_all(p.tmp().join("apache"));
     if cfg.ssl {
         crate::ssl::ensure_ca()?;
         crate::ssl::ensure_host_cert("localhost")?;
@@ -63,6 +66,36 @@ pub fn write_conf() -> Result<bool> {
     }
     util::write_if_changed(&conf_path(), &render_named("httpd.conf.tpl", &common))?;
     Ok(fcgi)
+}
+
+/// ServerRoot (göreli `modules/...` yolları buna göre çözülür) ve mime.types.
+/// Windows (Apache Lounge): `Apache24/bin/httpd.exe` -> `Apache24`, `Apache24/conf/mime.types`.
+/// macOS (Homebrew): `<opt>/httpd/bin/httpd` -> `<opt>/httpd/lib/httpd` (modules), `<önek>/etc/httpd/mime.types`.
+fn server_root(exe: &std::path::Path) -> Result<(PathBuf, PathBuf)> {
+    let base = exe.parent().and_then(|p| p.parent()).ok_or_else(|| anyhow!("ServerRoot"))?.to_path_buf();
+    if base.join("modules").is_dir() {
+        return Ok((base.clone(), base.join("conf").join("mime.types")));
+    }
+    #[cfg(target_os = "macos")]
+    if base.join("lib").join("httpd").join("modules").is_dir() {
+        let lib = base.join("lib").join("httpd");
+        let mime = crate::platform::cellar_prefix(exe)
+            .or_else(crate::platform::brew_prefix)
+            .map(|p| p.join("etc").join("httpd").join("mime.types"))
+            .filter(|m| m.is_file())
+            .unwrap_or_else(|| PathBuf::from("/private/etc/apache2/mime.types"));
+        return Ok((lib, mime));
+    }
+    Ok((base.clone(), base.join("conf").join("mime.types")))
+}
+
+/// macOS'ta 1024 altı portlar tüm arabirimlerde dinlenir; yerel ağdan erişim kapalıysa istekler bu bilgisayarla
+/// sınırlanır. `AuthMerging And`: vhost/alias kuralları (ör. phpMyAdmin'in Host denetimi) korunur.
+pub fn local_only_block(ports: &[u16]) -> String {
+    if !super::local_only(ports) {
+        return String::new();
+    }
+    "# Yerel ağdan erişim kapalı (Tercihler > Servisler ve Portlar): yalnız bu bilgisayar\n<Location \"/\">\n    AuthMerging And\n    Require local\n</Location>\n".into()
 }
 
 /// `httpd -t`: konfigürasyon sözdizimi denetimi.
@@ -96,7 +129,11 @@ pub fn start() -> Result<()> {
     super::phpcgi::ensure_extra()?;
     test_conf()?;
     let exe = exe().unwrap();
-    let args = vec!["-f".to_string(), conf_path().display().to_string()];
+    let mut args = vec!["-f".to_string(), conf_path().display().to_string()];
+    if cfg!(unix) {
+        // Unix'te httpd arka plana geçer; KaradelikDev süreci izleyebilsin diye ön planda kalsın
+        args.push("-DFOREGROUND".into());
+    }
     let child = util::spawn_bg(&exe, &args, exe.parent().and_then(|p| p.parent()), &env(), Some(&paths().logs().join("apache_stdout.log")))?;
     track("apache", child);
     if !util::wait_port(cfg.port, true, Duration::from_secs(10)) {

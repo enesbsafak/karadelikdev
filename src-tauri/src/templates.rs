@@ -4,6 +4,14 @@
 use crate::kcore::paths;
 
 fn embedded(name: &str) -> Option<&'static str> {
+    // macOS (Homebrew) için farklı olan şablonlar
+    #[cfg(target_os = "macos")]
+    match name {
+        "httpd.conf.tpl" => return Some(include_str!("../resources/tpl/mac/httpd.conf.tpl")),
+        "my.ini.tpl" => return Some(include_str!("../resources/tpl/mac/my.ini.tpl")),
+        "nginx.conf.tpl" => return Some(include_str!("../resources/tpl/mac/nginx.conf.tpl")),
+        _ => {}
+    }
     Some(match name {
         "httpd.conf.tpl" => include_str!("../resources/tpl/httpd.conf.tpl"),
         "apache.php.modphp.tpl" => include_str!("../resources/tpl/apache.php.modphp.tpl"),
@@ -63,6 +71,22 @@ pub fn render(tpl: &str, vars: &[(&str, String)]) -> String {
         s = s.replace(&format!("<<{k}>>"), v);
     }
     s.replace("\r\n", "\n")
+}
+
+/// php-cgi havuzuna giden isteklerde betik yolu düzeltmesi. mod_proxy_fcgi betik yolunu Windows'ta "/C:/..." veya
+/// "proxy:balancer://..." önekiyle, macOS'ta "proxy:balancer://<ad>/Users/..." biçiminde gönderir.
+pub fn fcgi_script_fix(indent: &str) -> String {
+    if cfg!(windows) {
+        format!(
+            "{indent}# Windows yolu (C:/...) için: mod_proxy_fcgi betik yolunu \"/C:/...\" veya \"proxy:balancer://...\" önekiyle gönderir\n\
+             {indent}ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^(?:proxy:balancer://[^/]+)?/([A-Za-z]:/.*)$#\" SCRIPT_FILENAME \"$1\"\n"
+        )
+    } else {
+        format!(
+            "{indent}# mod_proxy_fcgi betik yolunu \"proxy:balancer://...\" önekiyle gönderir\n\
+             {indent}ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^proxy:balancer://[^/]+(/.*)$#\" SCRIPT_FILENAME \"$1\"\n"
+        )
+    }
 }
 
 pub fn render_named(name: &str, vars: &[(&str, String)]) -> String {

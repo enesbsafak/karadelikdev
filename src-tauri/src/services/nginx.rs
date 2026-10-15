@@ -22,8 +22,18 @@ fn prefix() -> String {
     format!("{}/", fwd(&paths().tmp().join("nginx")))
 }
 
+/// mime.types ve fastcgi.conf'un bulunduğu klasör: Windows'ta `nginx/conf`, Homebrew'da `<önek>/etc/nginx`.
 pub fn bin_conf_dir() -> Option<PathBuf> {
-    exe().and_then(|e| e.parent().map(|p| p.join("conf")))
+    let exe = exe()?;
+    let conf = exe.parent()?.join("conf");
+    #[cfg(target_os = "macos")]
+    if !conf.join("mime.types").exists() {
+        return crate::platform::cellar_prefix(&exe)
+            .or_else(crate::platform::brew_prefix)
+            .map(|p| p.join("etc").join("nginx"))
+            .filter(|d| d.join("mime.types").is_file());
+    }
+    Some(conf)
 }
 
 pub fn write_conf() -> Result<()> {
@@ -57,12 +67,21 @@ pub fn write_conf() -> Result<()> {
         ("NGINX_CONF", fwd(&conf_dir)),
         ("SSL_LISTEN", ssl_listen),
         ("SSL_CERT", ssl_cert),
+        ("LOCAL_ONLY", local_only_block(&[cfg.port, cfg.ssl_port])),
     ];
     util::write_if_changed(&conf_path(), &render_named("nginx.conf.tpl", &vars))?;
     util::write_if_changed(&ng.join("fastcgi-php.conf"), &render_named("nginx.fastcgi-php.tpl", &vars))?;
     util::write_if_changed(&ng.join("sites-enabled").join("00-default.conf"), &render_named("nginx.default.tpl", &vars))?;
     super::phpcgi::write_upstream_conf()?;
     Ok(())
+}
+
+/// macOS'ta 1024 altı portlar tüm arabirimlerde dinlenir; yerel ağdan erişim kapalıysa yalnız bu bilgisayar.
+fn local_only_block(ports: &[u16]) -> String {
+    if !super::local_only(ports) {
+        return String::new();
+    }
+    "\n    # Yerel ağdan erişim kapalı (Tercihler > Servisler ve Portlar): yalnız bu bilgisayar\n    allow 127.0.0.1;\n    allow ::1;\n    deny all;\n".into()
 }
 
 fn nginx_cmd(extra: &[&str]) -> Result<std::process::Command> {

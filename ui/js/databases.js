@@ -77,7 +77,9 @@ function render() {
   $('btnRemovePw').classList.toggle('hidden', !data.password);
   $('btnPma').classList.toggle('hidden', !data.phpmyadmin);
   $('btnAdminer').classList.toggle('hidden', !data.adminer);
-  $('btnHeidi').classList.toggle('hidden', !data.heidisql);
+  // Windows: HeidiSQL; macOS: Sequel Ace / TablePlus / DBeaver
+  $('btnHeidi').classList.toggle('hidden', !data.db_tool);
+  if (data.db_tool) $('btnHeidi').textContent = data.db_tool;
 
   // Veritabanları
   const dbs = data.databases.Ok || [];
@@ -174,7 +176,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btnStart').addEventListener('click', () => call('start'));
   $('btnPma').addEventListener('click', () => invoke('open_url', { url: data.phpmyadmin }));
   $('btnAdminer').addEventListener('click', () => invoke('open_url', { url: data.adminer }));
-  $('btnHeidi').addEventListener('click', () => invoke('run_action', { id: 'tool:heidisql' }));
+  $('btnHeidi').addEventListener('click', () => invoke('run_action', { id: data && data.heidisql ? 'tool:heidisql' : 'tool:dbtool' }));
 
   $('createDb').addEventListener('submit', async (e) => {
     e.preventDefault();

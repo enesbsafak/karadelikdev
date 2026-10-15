@@ -20,7 +20,7 @@ pub fn bin_dir() -> Option<PathBuf> {
 
 pub fn tool(name: &str) -> Option<PathBuf> {
     let d = bin_dir()?;
-    [format!("{name}.exe"), format!("{}.exe", name.replace("mysql", "mariadb"))]
+    [crate::platform::exe(name), crate::platform::exe(&name.replace("mysql", "mariadb"))]
         .iter()
         .map(|n| d.join(n))
         .find(|p| p.exists())
@@ -32,7 +32,7 @@ pub fn key() -> Option<String> {
 
 pub fn is_mariadb() -> bool {
     versions::current("mysql").map(|v| v.to_lowercase().contains("mariadb")).unwrap_or(false)
-        || bin_dir().map(|d| d.join("mariadbd.exe").exists()).unwrap_or(false)
+        || bin_dir().map(|d| d.join(crate::platform::exe("mariadbd")).exists()).unwrap_or(false)
 }
 
 pub fn data_dir() -> Option<PathBuf> {
@@ -45,6 +45,18 @@ pub fn ini_path() -> Option<PathBuf> {
 
 pub fn log_path() -> PathBuf {
     paths().logs().join("mysqld.log")
+}
+
+/// Unix soket dosyası (macOS şablonu kullanır). Homebrew'un /tmp/mysql.sock'u ile çakışmasın diye kökte;
+/// yol 104 karakteri geçerse soket açılamaz, o durumda /tmp altında kök yoluna özgü bir ad kullanılır.
+pub fn socket_path() -> PathBuf {
+    let p = paths().tmp().join("mysql.sock");
+    if p.as_os_str().len() < 100 {
+        return p;
+    }
+    use sha2::{Digest, Sha256};
+    let h = hex::encode(Sha256::digest(paths().root.to_string_lossy().as_bytes()));
+    PathBuf::from(format!("/tmp/karadelikdev-{}.sock", &h[..12]))
 }
 
 pub fn write_ini() -> Result<PathBuf> {
@@ -62,6 +74,7 @@ pub fn write_ini() -> Result<PathBuf> {
             ("DATADIR", fwd(&data_dir().unwrap())),
             ("LOG_DIR", fwd(&paths().logs())),
             ("SECURE_FILE_PRIV", fwd(&files)),
+            ("SOCKET", fwd(&socket_path())),
         ],
     );
     util::write_if_changed(&ini, &content)?;
@@ -83,9 +96,18 @@ pub fn init_data_dir() -> Result<()> {
     let (code, out) = if is_mariadb() {
         let installer = tool("mysql_install_db")
             .or_else(|| tool("mariadb-install-db"))
-            .ok_or_else(|| anyhow!("mariadb-install-db.exe bulunamadı"))?;
+            .ok_or_else(|| anyhow!("mariadb-install-db bulunamadı"))?;
         let mut c = hidden(installer);
-        c.arg(format!("--datadir={}", data.display()));
+        if cfg!(windows) {
+            c.arg(format!("--datadir={}", data.display()));
+        } else {
+            // Unix betiği: varsayılan root yalnız unix_socket ile girer; TCP'den parolasız girişe izin ver
+            let basedir = mysqld().and_then(|e| e.parent().and_then(|p| p.parent()).map(Path::to_path_buf)).unwrap();
+            c.arg(format!("--defaults-file={}", ini.display()))
+                .arg(format!("--basedir={}", basedir.display()))
+                .arg(format!("--datadir={}", data.display()))
+                .args(["--auth-root-authentication-method=normal", "--skip-test-db"]);
+        }
         run_capture(c)?
     } else {
         let mut c = hidden(mysqld().unwrap());

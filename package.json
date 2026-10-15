@@ -2,7 +2,7 @@
   "name": "karadelikdev",
   "private": true,
   "version": "1.2.1",
-  "description": "KaradelikDev - Windows için yerel geliştirme ortamı yöneticisi",
+  "description": "KaradelikDev - Windows ve macOS için yerel geliştirme ortamı yöneticisi",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

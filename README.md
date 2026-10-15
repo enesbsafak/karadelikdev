@@ -4,17 +4,18 @@
 
 # KaradelikDev
 
-**Windows için hızlı ve hafif yerel geliştirme ortamı.**
+**Windows ve macOS için hızlı ve hafif yerel geliştirme ortamı.**
 Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mailpit tek pencereden.
 `www` içine bir klasör koyun, `klasor.test` adresi kendiliğinden hazır olsun.
 
 [![Release](https://img.shields.io/github/v/release/enesbsafak/karadelikdev?color=ff8a1f&label=s%C3%BCr%C3%BCm)](https://github.com/enesbsafak/karadelikdev/releases/latest)
 [![Lisans: MIT](https://img.shields.io/badge/lisans-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078d6)
+![macOS](https://img.shields.io/badge/macOS-11%2B%20%C2%B7%20Apple%20Silicon%20%7C%20Intel-555555)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db)
 ![Rust](https://img.shields.io/badge/Rust-stable-dea584)
 
-<sub>*A local development environment for Windows (Apache/Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with automatic `*.test` virtual hosts. UI in Turkish and English.*</sub>
+<sub>*A local development environment for Windows and macOS (Apache/Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Mailpit) with automatic `*.test` virtual hosts. UI in Turkish and English.*</sub>
 
 <img src="docs/screenshots/main.png" width="640" alt="KaradelikDev ana pencere">
 
@@ -27,6 +28,7 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 - [Özellikler](#özellikler)
 - [Neden KaradelikDev?](#neden-karadelikdev)
 - [Hızlı başlangıç](#hızlı-başlangıç)
+- [macOS](#macos)
 - [Kullanım](#kullanım)
 - [Klasör yapısı](#klasör-yapısı)
 - [Yapılandırma](#yapılandırma)
@@ -126,6 +128,37 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 </p>
 </details>
 
+## macOS
+
+macOS sürümü Windows'taki özelliklerin tamamını aynı arayüzle sunar; yalnız binary'ler Homebrew'dan gelir.
+
+1. [Son sürümden](https://github.com/enesbsafak/karadelikdev/releases/latest) Mac'inize uygun `KaradelikDev-<sürüm>-macos-aarch64.dmg` (Apple Silicon) veya `-macos-x86_64.dmg` (Intel) dosyasını indirin, KaradelikDev'i **Uygulamalar** klasörüne sürükleyin.
+2. Uygulama şimdilik Apple Developer ID ile imzalı değil (ad-hoc imza). İlk açılışta "doğrulanamadı" uyarısı çıkarsa: Finder'da KaradelikDev'e **sağ tık → Aç → Aç** (veya Sistem Ayarları → Gizlilik ve Güvenlik → **Yine de Aç**).
+3. Kurulum sihirbazı açılır. **Homebrew** yoksa "Homebrew'u kur" seçeneği resmi kurulum betiğini Terminal'de açar (parola ister); bitince **Yeniden denetle**. Önerilen paketler: Apache, PHP 8.4, MySQL 8.4, phpMyAdmin, Composer, Mailpit. Homebrew'da zaten kurulu olan paketler (ör. `mariadb`, `nginx`) indirme yapılmadan bağlanır.
+4. **Kur** → **Bitir** → **Tümünü Başlat**; `~/KaradelikDev/www/merhaba/index.php` oluşturun, `http://merhaba.test` açılır.
+
+**Nasıl çalışır?**
+- Paketler `brew install` ile kurulur; `bin/<kategori>/<ad>-<x.y>` Homebrew'un `opt/<formül>` klasörüne sembolik bağlantıdır (ör. `bin/php/php-8.4 -> /opt/homebrew/opt/php@8.4`). Servisler `brew services` ile **değil**, KaradelikDev'in `etc/` altında ürettiği ayarlarla çalışır; Homebrew'un kendi ayar dosyalarına dokunulmaz. Aynı anda `brew services` ile çalışan bir MySQL/PostgreSQL varsa portu Tercihler'den değiştirin (Unix soketleri ayrı olduğu için çakışmazlar).
+- Apache'de PHP, Homebrew PHP'nin `libphp.so` modülüyle (mod_php) çalışır; Nginx ve proje başına PHP sürümleri php-cgi havuzunu kullanır. PHP yama güncellemeleri `brew upgrade` ile gelir (Menü → PHP → Güncellemeleri denetle).
+- macOS, root olmayan uygulamaların 80/443 portlarını yalnız **tüm arabirimlerde** dinlemesine izin verir (`127.0.0.1:80` reddedilir). KaradelikDev bu portları tüm arabirimlerde dinler ve "Yerel ağdan erişime izin ver" kapalıyken istekleri sunucunun içinde bu Mac ile sınırlar (Apache `Require local`, Nginx `allow 127.0.0.1`). macOS güvenlik duvarı açıksa ilk başlatmada `httpd` için bir izin sorusu görebilirsiniz.
+- `.test` adresleri için `/etc/hosts` güncellenirken macOS yönetici parolasını sorar; ardından DNS önbelleği temizlenir. Yerel SSL kök sertifikası giriş anahtar zincirine eklenir (macOS güven ayarı için parolanızı sorar).
+
+| Windows | macOS |
+|---|---|
+| Tepsi simgesi, sol tık pencere | Menü çubuğu simgesi (tıklayınca menü); ayrıca uygulama menüsü, Düzen ve Pencere menüleri, Dock |
+| `Ctrl+Alt+T` terminal | `⌥⌘T`; Terminal.app veya iTerm2 (Tercihler → Gelişmiş). Kabuğunuz kendi ayarlarını okur, sonra `usr/kdenv.sh` yüklenir |
+| Explorer sağ tık menüsü | Finder Hızlı Eylemleri: klasöre sağ tık → Hızlı Eylemler → KaradelikDev Terminal / Editör |
+| Kullanıcı PATH'i (kayıt defteri) | `~/.zprofile` (bash kullanıyorsanız `~/.bash_profile`) içinde işaretli blok |
+| Windows servisi olarak çalıştır | Oturum açılınca servis olarak çalıştır: `~/Library/LaunchAgents/dev.karadelik.<servis>.plist` (yönetici izni gerekmez) |
+| Windows açılınca çalıştır | Oturum açılınca çalıştır (LaunchAgent) |
+| HeidiSQL | Sequel Ace / TablePlus / DBeaver (kuruluysa; bağlantı bilgisiyle açılır), phpMyAdmin, Adminer |
+| `usr\user.cmd` | `usr/user.sh` |
+| Laragon'dan içe aktar | — (Windows'a özgü) |
+
+**Güncelleme (macOS).** Menü → KaradelikDev → Güncelle: `.app.tar.gz` indirilir, SHA-256 ile doğrulanır, uygulama kapanınca `/Applications/KaradelikDev.app` yenisiyle değiştirilip açılır ve çalışan servisler yeniden başlatılır.
+
+**Kaldırma (macOS).** İsterseniz önce `/Applications/KaradelikDev.app/Contents/MacOS/karadelikdev --uninstall` çalıştırın (servisleri durdurur; oturum açılışı, Hızlı Eylemler, PATH bloğu ve LaunchAgent'lar silinir), sonra uygulamayı Çöp Sepeti'ne sürükleyin. `~/KaradelikDev` (projeler, veritabanları) ve Homebrew paketleri silinmez.
+
 ## Kullanım
 
 | Nerede | Ne yapar |
@@ -156,6 +189,7 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 ```
 C:\Program Files\KaradelikDev\   program (karadelikdev.exe, uninstall.exe)
+/Applications/KaradelikDev.app  macOS: program; veri klasörü ~/KaradelikDev (bin/ altındakiler Homebrew'a bağlantı)
 
 C:\karadelik\                  veri klasörü (sihirbazdan değiştirilebilir)
 ├─ bin\<kategori>\<sürüm>\   Apache, PHP, MySQL… (Hızlı ekle veya Laragon'dan içe aktar)
@@ -192,13 +226,13 @@ karadelikdev --headless start|stop
 karadelikdev --headless pg-password <parola>   :: PostgreSQL çalışırken postgres parolası (boş = parolasız)
 ```
 
-Veri klasörü `HKCU\Software\KaradelikDev\DataRoot` kaydında tutulur (sihirbazdan değiştirilir); `KARADELIK_ROOT` ortam değişkeni her ikisinin önüne geçer. Kurulum dışında, ör. kaynak koddan derlenmiş bir exe, kendi klasörünü kök olarak kullanır.
+Veri klasörü `HKCU\Software\KaradelikDev\DataRoot` kaydında (macOS: `~/Library/Application Support/KaradelikDev/config.json`) tutulur (sihirbazdan değiştirilir); `KARADELIK_ROOT` ortam değişkeni her ikisinin önüne geçer. macOS'ta `karadelikdev` komutu KaradelikDev terminalinde ve PATH'e eklendiyse her terminalde kullanılabilir (`usr/bin/karadelikdev`). Kurulum dışında, ör. kaynak koddan derlenmiş bir exe, kendi klasörünü kök olarak kullanır.
 
 ## Varsayılan portlar
 
 | Servis | Port | Dinlediği adres |
 |---|---|---|
-| Apache | 80, SSL 443 | 127.0.0.1 ve ::1 (Tercihler'den yerel ağa açılabilir) |
+| Apache | 80, SSL 443 | 127.0.0.1 ve ::1 (Tercihler'den yerel ağa açılabilir). macOS: tüm arabirimler, erişim bu Mac ile sınırlı |
 | Nginx | 8080, SSL 8443 | 127.0.0.1 ve ::1 (Tercihler'den yerel ağa açılabilir) |
 | MySQL / MariaDB | 3306 | 127.0.0.1 |
 | PostgreSQL | 5432 | localhost |
@@ -224,7 +258,7 @@ KaradelikDev'in varsayılanları **tek kullanıcılı bir geliştirme bilgisayar
 
 ## Bilinen sınırlamalar
 
-- Exe imzasız (SmartScreen uyarısı).
+- Exe imzasız (SmartScreen uyarısı). macOS uygulaması ad-hoc imzalı (ilk açılışta Gatekeeper uyarısı).
 - Kök klasör yolunda boşluk olmamalı (Apache ve MySQL ile uyumluluk).
 - KaradelikDev ve Laragon aynı portları kullanır; ikisini aynı anda çalıştırmayın.
 - Laragon'dan içe aktarılan Apache'de mod_ssl bir OpenSSL sürüm uyarısı yazabilir (Laragon o klasördeki `libcrypto`'yu değiştirdiği için); temiz bir Apache'de oluşmaz.
@@ -233,6 +267,7 @@ KaradelikDev'in varsayılanları **tek kullanıcılı bir geliştirme bilgisayar
 ## Kaynaktan derleme
 
 Gerekenler: [Rust](https://rustup.rs) (MSVC), Node.js 20+, Visual Studio Build Tools (C++), WebView2.
+macOS: Xcode komut satırı araçları (`xcode-select --install`), Rust, Node.js 20+; `npm run build` `.app` ve `.dmg` üretir (`src-tauri/target/release/bundle/`). Testler için uygulamayı `KARADELIK_ROOT=<klasör> KARADELIK_HOSTS=<dosya>` ile başlatın (geliştirme derlemesi `/etc/hosts` yerine o dosyayı kullanır, parola sorulmaz).
 
 ```bash
 npm install
@@ -267,14 +302,18 @@ src-tauri\resources\defaults\   ilk açılışta usr\ altına yazılan dosyalar
 ui\                             arayüz (HTML/CSS/JS, derleme adımı yok)
 tests\                          uçtan uca test betikleri
 src-tauri\windows\hooks.nsh    kurulum/kaldırma kancaları (NSIS)
+src-tauri\src\platform\        işletim sistemi katmanı (windows.rs, macos.rs); winenv\, acl\, services\winservice\ aynı düzende
+src-tauri\tauri.macos.conf.json macOS paketleme ve pencere ayarları (tauri.conf.json'un üzerine birleşir)
 scripts\release.ps1             sürüm paketi: setup, SHA256SUMS.txt, latest.json
+scripts/release.sh              macOS sürüm paketi: dmg, app.tar.gz; SHA256SUMS.txt ve latest.json'a ekler
 ```
 
 **Sürüm yayınlama**
 
 1. `src-tauri\Cargo.toml`, `package.json` ve `src-tauri\tauri.conf.json` içindeki sürümü yükseltin, `docs\releases\<sürüm>.md` notunu yazın.
 2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında `KaradelikDev-<sürüm>-setup.exe`, `SHA256SUMS.txt` ve `latest.json`.
-3. Önce main'i push edin, sonra üç dosyayı `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır; push'tan önce çalıştırılırsa etiket eski commit'e bağlanır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
+3. macOS: Windows'un `dist\` çıktısını Mac'teki `dist/` klasörüne kopyalayıp `bash scripts/release.sh` (Intel için ayrıca `--universal`) çalıştırın; dmg ve app.tar.gz eklenir, `latest.json`'a `platforms` girdileri yazılır (eski Windows istemcileri `url`/`sha256` alanlarını okumaya devam eder).
+4. Önce main'i push edin, sonra dosyaları `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır; push'tan önce çalıştırılırsa etiket eski commit'e bağlanır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
 
 ## Lisans
 

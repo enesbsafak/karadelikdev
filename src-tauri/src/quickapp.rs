@@ -97,11 +97,16 @@ pub fn create(template: &str, name: &str) -> Result<String> {
     } else {
         let cmd = value.replace("%s", name);
         let exe = std::env::current_exe()?;
-        let chain = format!(
-            "echo. & echo [KaradelikDev] {} & {cmd} && \"{}\" --post-create {name}",
-            tf("progress.creating", &[name]),
-            exe.display()
-        );
+        let chain = if cfg!(windows) {
+            format!("echo. & echo [KaradelikDev] {} & {cmd} && \"{}\" --post-create {name}", tf("progress.creating", &[name]), exe.display())
+        } else {
+            let q = |s: &str| crate::platform::sh_quote(s);
+            format!(
+                "echo; echo {}; {cmd} && {} --post-create {name}",
+                q(&format!("[KaradelikDev] {}", tf("progress.creating", &[name]))),
+                q(&exe.display().to_string())
+            )
+        };
         crate::terminal::open(&PathBuf::from(settings().document_root), Some(&chain))?;
         return Ok(tf("msg.creating_in_terminal", &[name]));
     }

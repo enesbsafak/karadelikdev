@@ -95,22 +95,22 @@ impl Svc {
         Svc::ALL.into_iter().find(|s| s.id() == id)
     }
 
-    pub fn exe_name(self) -> &'static str {
-        match self {
-            Svc::Apache => "httpd.exe",
-            Svc::Nginx => "nginx.exe",
-            Svc::Mysql => "mysqld.exe",
-            Svc::Postgresql => "postgres.exe",
-            Svc::Mongodb => "mongod.exe",
-            Svc::Redis => "redis-server.exe",
-            Svc::Memcached => "memcached.exe",
-            Svc::Mailpit => "mailpit.exe",
-            Svc::PhpServer => "php.exe",
-        }
+    pub fn exe_name(self) -> String {
+        crate::platform::exe(match self {
+            Svc::Apache => "httpd",
+            Svc::Nginx => "nginx",
+            Svc::Mysql => "mysqld",
+            Svc::Postgresql => "postgres",
+            Svc::Mongodb => "mongod",
+            Svc::Redis => "redis-server",
+            Svc::Memcached => "memcached",
+            Svc::Mailpit => "mailpit",
+            Svc::PhpServer => "php",
+        })
     }
 
     pub fn exe(self) -> Option<PathBuf> {
-        crate::versions::exe(self.category(), self.exe_name())
+        crate::versions::exe(self.category(), &self.exe_name())
     }
 
     pub fn port(self) -> u16 {
@@ -147,7 +147,7 @@ pub fn statuses() -> Vec<SvcStatus> {
             let mut foreign = None;
             if let Some(pid) = pid {
                 if let Some(path) = util::process_path(pid) {
-                    if !is_ours(&path, exe.as_deref()) {
+                    if !is_ours_pid(pid, &path, exe.as_deref()) {
                         running = false;
                         foreign = Some(path.display().to_string());
                     }
@@ -168,6 +168,19 @@ pub fn statuses() -> Vec<SvcStatus> {
             }
         })
         .collect()
+}
+
+/// Dinleyen süreç bizim mi? macOS'ta `bin` altındaki sürümler Homebrew'a bağlantı olduğundan aynı binary'yi
+/// kullanıcının `brew services` ile çalıştırdığı kopya da kullanır; o yüzden komut satırında/çalışma dizininde
+/// KaradelikDev kökü geçmesi de aranır (bizim başlattıklarımız ayar dosyalarını kökten okur).
+fn is_ours_pid(pid: u32, proc_path: &Path, expected: Option<&Path>) -> bool {
+    if !is_ours(proc_path, expected) {
+        return false;
+    }
+    if cfg!(target_os = "macos") {
+        return util::pid_mentions_root(pid, &paths().root);
+    }
+    true
 }
 
 /// Dinleyen süreç bizim bin dizinimizden mi (veya bağlantı verilen hedefinden mi)?
@@ -201,7 +214,7 @@ pub fn is_running(svc: Svc) -> bool {
 /// Servisin portunu dinleyen süreç bizim bin dizinimizden mi?
 pub fn owned_by_us(svc: Svc) -> bool {
     let Some(pid) = util::listeners().get(&svc.port()).copied() else { return false };
-    util::process_path(pid).map(|p| is_ours(&p, svc.exe().as_deref())).unwrap_or(true)
+    util::process_path(pid).map(|p| is_ours_pid(pid, &p, svc.exe().as_deref())).unwrap_or(true)
 }
 
 pub fn track(key: &str, child: Child) {
@@ -242,13 +255,16 @@ pub fn service_env(extra_dirs: &[PathBuf]) -> Vec<(String, String)> {
         parts.push(p);
     }
     parts.push(std::env::var("PATH").unwrap_or_default());
-    vec![("PATH".into(), parts.join(";"))]
+    vec![("PATH".into(), crate::platform::join_path(parts))]
 }
 
 /// Web sunucularının dinleyeceği adresler. Varsayılan yalnız bu bilgisayar (127.0.0.1 ve varsa ::1);
 /// Tercihler'de "yerel ağdan erişim" açıksa tüm arabirimler (yalnız port).
+/// macOS root olmayan süreçlerin 1024 altı portları yalnız tüm arabirimlerde dinlemesine izin verir
+/// (127.0.0.1:80 "Permission denied"); o portlarda tüm arabirimler dinlenir ve erişim web sunucusunun içinde
+/// bu bilgisayarla sınırlanır (bkz. `local_only`).
 pub fn listen_addrs(port: u16) -> Vec<String> {
-    if settings().lan_access {
+    if settings().lan_access || wildcard_only(port) {
         return vec![port.to_string()];
     }
     let mut v = vec![format!("127.0.0.1:{port}")];
@@ -256,6 +272,16 @@ pub fn listen_addrs(port: u16) -> Vec<String> {
         v.push(format!("[::1]:{port}"));
     }
     v
+}
+
+/// Port yalnız tüm arabirimlerde dinlenebiliyor mu (macOS, root değil, port < 1024)?
+pub fn wildcard_only(port: u16) -> bool {
+    cfg!(target_os = "macos") && port < 1024
+}
+
+/// Web sunucusu tüm arabirimleri dinliyor ama yerel ağ erişimi kapalıysa istekler bu bilgisayarla sınırlanmalı.
+pub fn local_only(ports: &[u16]) -> bool {
+    !settings().lan_access && ports.iter().any(|p| wildcard_only(*p))
 }
 
 /// IPv6 devre dışıysa [::1] dinlemek sunucunun açılmasını engeller.

@@ -10,7 +10,10 @@ function say(text, isError = false) {
 }
 
 const act = (id) => invoke('run_action', { id });
-const host = (url) => { try { return new URL(url).host; } catch { return url; } };
+const host = (url) => {
+  if (url.startsWith('brew:')) return `Homebrew: ${url.slice(5)}`;
+  try { return new URL(url).host; } catch { return url; }
+};
 
 function renderCatalog() {
   const q = $('filter').value.trim().toLowerCase();
@@ -54,7 +57,7 @@ function renderVersions() {
         el('td', { class: i ? 'muted' : '' }, i ? '' : c.title),
         el('td', {}, v, isCur ? el('span', { class: 'tag ok', style: 'margin-left:6px' }, T('packages.active')) : null),
         el('td', { class: 'actions' },
-          el('button', { class: 'btn', onclick: () => act(`open:${c.dir}\\${v}`) }, T('projects.folder')),
+          el('button', { class: 'btn', onclick: () => act(`open:${c.dir}${SEP}${v}`) }, T('projects.folder')),
           isCur ? null : el('button', { class: 'btn primary', onclick: () => { say(TF('packages.switching', c.title, v)); act(`ver:${c.cat}:${v}`); setTimeout(load, 1500); } }, T('packages.use')))));
     });
   }

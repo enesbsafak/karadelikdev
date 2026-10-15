@@ -38,10 +38,12 @@ lzma-rs = "0.3"
 sha2 = "0.10"
 hex = "0.4"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-winreg = "0.56"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Threading", "Win32_System_Console", "Win32_Security", "Win32_Security_Authorization"] }
 rand = "0.9"
 once_cell = "1"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Threading", "Win32_System_Console", "Win32_Security", "Win32_Security_Authorization"] }
 
 [profile.release]
 opt-level = "s"

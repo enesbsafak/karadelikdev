@@ -96,6 +96,51 @@ pub fn ensure_host_cert(host: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// macOS: CA, kullanıcının giriş anahtar zincirinde "her zaman güven" ayarıyla kök sertifika olarak durur.
+#[cfg(not(windows))]
+fn login_keychain() -> String {
+    crate::platform::home().join("Library").join("Keychains").join("login.keychain-db").display().to_string()
+}
+
+/// Sertifika zinciri sistemce doğrulanabiliyorsa (CA güvenilir) true.
+#[cfg(not(windows))]
+pub fn is_trusted() -> bool {
+    if !ca_crt().exists() {
+        return false;
+    }
+    let mut c = hidden("/usr/bin/security");
+    c.args(["verify-cert", "-q", "-L", "-p", "basic", "-c"]).arg(ca_crt());
+    run_capture(c).map(|(code, _)| code == 0).unwrap_or(false)
+}
+
+/// Giriş anahtar zincirine kök olarak ekler. macOS güven ayarı değişikliği için kullanıcı parolasını sorar.
+#[cfg(not(windows))]
+pub fn trust() -> Result<()> {
+    ensure_ca()?;
+    let mut c = hidden("/usr/bin/security");
+    c.args(["add-trusted-cert", "-r", "trustRoot", "-k", &login_keychain()]).arg(ca_crt());
+    let (code, out) = run_capture(c)?;
+    if code != 0 {
+        anyhow::bail!("security: {}", out.trim());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn untrust() -> Result<()> {
+    let mut c = hidden("/usr/bin/security");
+    c.arg("remove-trusted-cert").arg(ca_crt());
+    let (code, out) = run_capture(c)?;
+    let mut d = hidden("/usr/bin/security");
+    d.args(["delete-certificate", "-c", CA_NAME, &login_keychain()]);
+    let _ = run_capture(d);
+    if code != 0 {
+        anyhow::bail!("security: {}", out.trim());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
 pub fn is_trusted() -> bool {
     let mut c = hidden("certutil");
     c.args(["-user", "-verifystore", "Root", CA_NAME]);
@@ -103,6 +148,7 @@ pub fn is_trusted() -> bool {
 }
 
 /// Kullanıcının "Güvenilen Kök Sertifika Yetkilileri" deposuna ekler. Windows bir onay penceresi gösterir.
+#[cfg(windows)]
 pub fn trust() -> Result<()> {
     ensure_ca()?;
     let mut c = hidden("certutil");
@@ -114,6 +160,7 @@ pub fn trust() -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 pub fn untrust() -> Result<()> {
     let mut c = hidden("certutil");
     c.args(["-user", "-delstore", "Root", CA_NAME]);

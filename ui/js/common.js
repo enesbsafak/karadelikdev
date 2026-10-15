@@ -4,6 +4,11 @@ const invoke = (cmd, args) => TAURI.core.invoke(cmd, args);
 const listen = (ev, fn) => TAURI.event.listen(ev, (e) => fn(e.payload));
 const currentWindow = () => TAURI.window.getCurrentWindow();
 
+// Platform: macOS'ta pencere düğmeleri yerine sistemin trafik ışıkları kullanılır (bkz. app.css html.mac)
+const IS_MAC = /Mac/.test(navigator.platform || navigator.userAgent);
+if (IS_MAC) document.documentElement.classList.add('mac');
+const SEP = IS_MAC ? '/' : '\\';
+
 let I18N = {};
 const T = (key) => I18N[key] ?? key;
 const TF = (key, ...args) => args.reduce((s, a, i) => s.replaceAll(`{${i}}`, a), T(key));

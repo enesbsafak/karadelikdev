@@ -40,7 +40,8 @@ fn spawn_cgi(exe: &std::path::Path, port: u16, ini_dir: &std::path::Path, env: &
 
 /// php-cgi ortamı: PHP klasörü PATH'te (eklenti DLL'leri), istek sınırı yok, php.ini klasörü PHPRC.
 fn cgi_env(php_dir: &std::path::Path, ini_dir: &std::path::Path) -> Vec<(String, String)> {
-    let path = format!("{};{};{}", php_dir.display(), php_dir.join("ext").display(), std::env::var("PATH").unwrap_or_default());
+    let bin = crate::php::cgi_exe_for(php_dir).and_then(|e| e.parent().map(|p| p.display().to_string())).unwrap_or_default();
+    let path = crate::platform::join_path([php_dir.display().to_string(), php_dir.join("ext").display().to_string(), bin, std::env::var("PATH").unwrap_or_default()]);
     vec![
         ("PATH".into(), path),
         // Windows'ta php-cgi kendi alt süreçlerini açamaz; istek sınırı olmasın ki süreç kendiliğinden kapanmasın
@@ -85,16 +86,18 @@ pub fn ensure_extra() -> Result<()> {
         let ini = crate::php::ensure_ini_for(&ver)?;
         let ini_dir = ini.parent().unwrap().to_path_buf();
         // Port başka bir sürümün php-cgi'si tarafından tutuluyorsa (havuz sırası değişti) onu kapat
+        let cgi = crate::php::cgi_exe_for(&dir).ok_or_else(|| anyhow!(tf("msg.not_installed", &[&format!("{ver} php-cgi")])))?;
         if tracked_alive(&format!("php-cgi-{port}")).is_none() && util::port_open(port) {
             if let Some(pid) = util::listeners().get(&port).copied() {
-                let ours = util::process_path(pid).map(|p| p == dir.join("php-cgi.exe")).unwrap_or(true);
+                let real = std::fs::canonicalize(&cgi).map(crate::paths::strip_unc).unwrap_or_else(|_| cgi.clone());
+                let ours = util::process_path(pid).map(|p| p == cgi || p == real).unwrap_or(true);
                 if !ours {
                     util::kill_tree(pid);
                     util::wait_port(port, false, std::time::Duration::from_secs(3));
                 }
             }
         }
-        spawn_cgi(&dir.join("php-cgi.exe"), port, &ini_dir, &cgi_env(&dir, &ini_dir))?;
+        spawn_cgi(&cgi, port, &ini_dir, &cgi_env(&dir, &ini_dir))?;
     }
     Ok(())
 }
@@ -115,7 +118,9 @@ pub fn stop_all() {
     }
     // Ayarı sonradan kaldırılmış ek sürümler dahil, bu köke ait tüm php-cgi süreçleri
     for ver in crate::versions::installed("php") {
-        super::kill_by_exe(&crate::php::dir_for(&ver).join("php-cgi.exe"));
+        if let Some(cgi) = crate::php::cgi_exe_for(&crate::php::dir_for(&ver)) {
+            super::kill_by_exe(&cgi);
+        }
     }
 }
 

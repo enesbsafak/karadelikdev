@@ -1,4 +1,4 @@
-//! KaradelikDev - Windows için yerel geliştirme ortamı yöneticisi (Laragon tarzı).
+//! KaradelikDev - Windows ve macOS için yerel geliştirme ortamı yöneticisi (Laragon tarzı).
 
 mod acl;
 mod actions;
@@ -37,6 +37,7 @@ use tauri::{Manager, RunEvent, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Taşınabilir sürümden geçişte veri klasöründe kalan eski exe yanlışlıkla açılmasın diye adı değiştirilir.
+#[cfg(windows)]
 fn retire_portable_exe() {
     let old = kcore::paths().root.join("karadelikdev.exe");
     if old.is_file() {
@@ -48,8 +49,27 @@ fn retire_portable_exe() {
     }
 }
 
+#[cfg(not(windows))]
+fn retire_portable_exe() {}
+
+/// macOS: `karadelikdev` komutu terminalden çalışsın diye `usr/bin` (PATH'teki ilk dizin) altına uygulamanın
+/// ikilisine bağlantı.
+#[cfg(target_os = "macos")]
+fn link_cli() {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let link = kcore::paths().usr().join("bin").join("karadelikdev");
+    if std::fs::read_link(&link).map(|t| t == exe).unwrap_or(false) {
+        return;
+    }
+    let _ = std::fs::remove_file(&link);
+    let _ = std::fs::create_dir_all(link.parent().unwrap());
+    let _ = std::os::unix::fs::symlink(&exe, &link);
+}
+
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
+    #[cfg(target_os = "macos")]
+    platform::extend_gui_path();
     cli::protect_std_handles();
     if let Some(code) = cli::handle(&args) {
         std::process::exit(code);
@@ -57,7 +77,9 @@ pub fn run() {
     kcore::init(paths::Paths::detect());
     packages::ensure_defaults();
 
-    let terminal_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyT);
+    // Windows Ctrl+Alt+T, macOS ⌥⌘T
+    let terminal_mods = if cfg!(target_os = "macos") { Modifiers::SUPER | Modifiers::ALT } else { Modifiers::CONTROL | Modifiers::ALT };
+    let terminal_key = Shortcut::new(Some(terminal_mods), Code::KeyT);
     let start_args = args.clone();
 
     let app = tauri::Builder::default()
@@ -131,12 +153,18 @@ pub fn run() {
 
             let st = services::statuses();
             let menu = menu::build(&handle, &st)?;
-            let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-off.png"))?;
+            let icon = tauri::image::Image::from_bytes(menu::tray_icon(false))?;
+            #[cfg(target_os = "macos")]
+            {
+                let _ = app.set_menu(menu::app_menu(&handle, &st)?);
+            }
             TrayIconBuilder::with_id("main")
                 .icon(icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("KaradelikDev")
                 .menu(&menu)
-                .show_menu_on_left_click(false)
+                // macOS menü çubuğu simgeleri tıklanınca menüyü açar; Windows'ta sol tık pencereyi gösterir
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .on_tray_icon_event(|_tray, ev| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = ev {
                         windows::show_main();
@@ -146,7 +174,7 @@ pub fn run() {
             menu::refresh(&st);
 
             if let Err(e) = app.global_shortcut().register(terminal_key) {
-                kcore::log(&format!("CTRL+ALT+T kısayolu atanamadı: {e}"));
+                kcore::log(&format!("{} kısayolu atanamadı: {e}", platform::TERMINAL_SHORTCUT));
             }
 
             let s = kcore::settings();
@@ -167,6 +195,8 @@ pub fn run() {
                 }
                 retire_portable_exe();
             }
+            #[cfg(target_os = "macos")]
+            link_cli();
             let autostarted = start_args.iter().any(|a| a == "--autostart");
             // Güncelleme sonrası yeniden başlatma: `--updated <servisler>`
             let resumed = (start_args.get(1).map(String::as_str) == Some("--updated")).then(|| start_args.get(2).cloned().unwrap_or_default());
@@ -208,6 +238,11 @@ pub fn run() {
         .expect("KaradelikDev başlatılamadı");
 
     app.run(|_app, event| {
+        // macOS: pencere kapalıyken Dock simgesine tıklanınca ana pencere açılır
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen { .. } = event {
+            windows::show_main();
+        }
         if let RunEvent::Exit = event {
             // Normal çıkış actions::exit ile servisleri zaten durdurur; oturum kapanışı vb. için güvence
             tunnel::stop();

@@ -1,5 +1,5 @@
-//! Windows hosts dosyası. KaradelikDev girdileri işaretli bir blok içinde tutulur;
-//! yazma izni yoksa geçici dosya yazılır ve yükseltilmiş `--apply-hosts` ile kopyalanır (UAC).
+//! hosts dosyası. KaradelikDev girdileri işaretli bir blok içinde tutulur; yazma izni yoksa geçici dosya yazılır ve
+//! yönetici olarak kopyalanır (Windows: yükseltilmiş `--apply-hosts`, UAC; macOS: parola penceresi, ardından DNS önbelleği temizlenir).
 
 use crate::kcore::paths;
 use anyhow::{Context, Result};
@@ -14,6 +14,7 @@ pub fn hosts_path() -> PathBuf {
 }
 
 pub fn build(current: &str, hosts: &[String]) -> String {
+    let nl = crate::platform::LINE_END;
     let mut out = String::new();
     let mut inside = false;
     for line in current.lines() {
@@ -27,21 +28,22 @@ pub fn build(current: &str, hosts: &[String]) -> String {
         }
         if !inside {
             out.push_str(line);
-            out.push_str("\r\n");
+            out.push_str(nl);
         }
     }
     let trimmed = out.trim_end().to_string();
     let mut out = trimmed;
     if !hosts.is_empty() {
-        out.push_str("\r\n\r\n");
+        out.push_str(nl);
+        out.push_str(nl);
         out.push_str(BEGIN);
-        out.push_str("\r\n");
+        out.push_str(nl);
         for h in hosts {
-            out.push_str(&format!("127.0.0.1      {h}\r\n"));
+            out.push_str(&format!("127.0.0.1      {h}{nl}"));
         }
         out.push_str(END);
     }
-    out.push_str("\r\n");
+    out.push_str(nl);
     out
 }
 
@@ -58,12 +60,28 @@ pub fn sync(hosts: &[String]) -> Result<bool> {
         Err(_) => {
             let tmp = paths().tmp().join("hosts.tmp");
             fs::write(&tmp, &wanted)?;
-            let exe = std::env::current_exe()?;
-            crate::util::run_elevated(&exe, &format!("--apply-hosts \"{}\"", tmp.display()), true)
-                .context(crate::i18n::t("msg.hosts_denied"))?;
+            apply_elevated(&tmp).context(crate::i18n::t("msg.hosts_denied"))?;
             Ok(true)
         }
     }
+}
+
+#[cfg(windows)]
+fn apply_elevated(tmp: &Path) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    crate::util::run_elevated(&exe, &format!("--apply-hosts \"{}\"", tmp.display()), true)
+}
+
+/// macOS: `cat` hosts dosyasının sahibini ve izinlerini korur; ardından DNS önbelleği temizlenir.
+#[cfg(not(windows))]
+fn apply_elevated(tmp: &Path) -> Result<()> {
+    let q = |p: &Path| crate::platform::sh_quote(&p.display().to_string());
+    let script = format!(
+        "/bin/cat {} > {} && /usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder 2>/dev/null; true",
+        q(tmp),
+        q(&hosts_path())
+    );
+    crate::platform::run_elevated_shell(&script, &crate::i18n::t("msg.hosts_prompt"))
 }
 
 fn normalize(s: &str) -> String {
@@ -87,7 +105,16 @@ pub fn apply_from(tmp: &Path) -> Result<()> {
     Ok(())
 }
 
+/// macOS: hosts dosyası Terminal'de `sudo nano` ile açılır (kaydedince DNS önbelleği temizlenir).
+#[cfg(not(windows))]
+pub fn edit_as_admin() -> Result<()> {
+    let path = crate::platform::sh_quote(&hosts_path().display().to_string());
+    let cmd = format!("sudo ${{EDITOR:-nano}} {path} && sudo /usr/bin/dscacheutil -flushcache && sudo /usr/bin/killall -HUP mDNSResponder; exit");
+    crate::platform::terminal_script("hosts", &paths().root, None, &cmd, false, None)
+}
+
 /// Hosts dosyasını yönetici olarak Not Defteri'nde açar.
+#[cfg(windows)]
 pub fn edit_as_admin() -> Result<()> {
     crate::util::run_elevated(Path::new("notepad.exe"), &format!("\"{}\"", hosts_path().display()), false)
 }
@@ -98,7 +125,7 @@ mod tests {
 
     #[test]
     fn block_roundtrip() {
-        let base = "127.0.0.1 localhost\r\n";
+        let base = &format!("127.0.0.1 localhost{}", crate::platform::LINE_END);
         let a = build(base, &["a.test".into(), "b.test".into()]);
         assert!(a.contains("127.0.0.1      a.test"));
         let b = build(&a, &["c.test".into()]);

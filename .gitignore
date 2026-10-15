@@ -6,3 +6,4 @@ runtime/
 fresh-test/
 docs/laragon-analizi.md
 dist/
+.DS_Store

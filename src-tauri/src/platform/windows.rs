@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
 pub const EXE_SUFFIX: &str = ".exe";
+/// PATH ortam değişkeninde dizin ayırıcı.
+pub const PATH_SEP: &str = ";";
+/// Ürettiğimiz metin dosyalarının satır sonu.
+pub const LINE_END: &str = "\r\n";
 /// Kurulumlu sürümde veri klasörünün varsayılanı: kısa ve boşluksuz (Apache/MySQL boşluklu yollarla sorun çıkarır).
 pub fn default_data_root() -> PathBuf {
     PathBuf::from(r"C:\karadelik")

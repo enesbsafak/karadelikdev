@@ -12,7 +12,10 @@
 //! - `run_elevated(program, args, wait) -> Result<()>`, `run_elevated_code(program, args) -> Result<u32>`
 //! - `config_get(name)`, `config_set(name, value)`, `install_dirs()`, `default_data_root()`
 //! - `hosts_path()`, `attach_console()`, `protect_std_handles()`
-//! - `EXE_SUFFIX`
+//! - `EXE_SUFFIX`, `PATH_SEP`, `LINE_END`
+//!
+//! Yalnız macOS'ta: `brew_prefix()`, `brew()`, `cellar_prefix()`, `terminal_script()`, `run_elevated_shell()`,
+//! `app_bundle()`, `extend_gui_path()`, `sh_quote()`.
 
 #[cfg(windows)]
 mod windows;
@@ -27,4 +30,23 @@ pub use self::macos::*;
 /// Çalıştırılabilir dosya adı: Windows'ta `.exe` eklenir (`exe("httpd")` -> `httpd.exe` / `httpd`).
 pub fn exe(name: &str) -> String {
     format!("{name}{EXE_SUFFIX}")
+}
+
+/// Dizinleri PATH biçiminde birleştirir (Windows `;`, macOS `:`).
+pub fn join_path<I: IntoIterator<Item = S>, S: AsRef<str>>(parts: I) -> String {
+    parts.into_iter().map(|s| s.as_ref().to_string()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(PATH_SEP)
+}
+
+/// Kullanıcıya gösterilen klavye kısayolu (terminal): Windows `Ctrl+Alt+T`, macOS `⌥⌘T`.
+pub const TERMINAL_SHORTCUT: &str = if cfg!(target_os = "macos") { "⌥⌘T" } else { "Ctrl+Alt+T" };
+
+/// POSIX kabuğu için tek tırnaklı dizge (macOS betikleri; Windows'ta kullanılmaz).
+#[allow(dead_code)]
+pub fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Menü etiketlerinde göreli yol (ör. `bin\php` / `bin/php`).
+pub fn rel(parts: &[&str]) -> String {
+    parts.join(if cfg!(windows) { "\\" } else { "/" })
 }

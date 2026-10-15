@@ -3,6 +3,10 @@
 //! setup'ı sessizce (`/S /UPDATE`) çalıştırır ve yeni sürümü açar. Taşınabilir kurulumdan gelen kullanıcıda
 //! setup normal (`/S`) çalışır ve eski klasör veri klasörü olarak kaydedilir.
 //! Geri dönüş: önceki sürümün setup'ı GitHub'dan indirilip (o sürümün SHA256SUMS.txt'siyle doğrulanarak) aynı yoldan kurulur.
+//!
+//! macOS: `latest.json`'daki `platforms."macos-aarch64"` / `"macos-x86_64"` girdisinin `.app.tar.gz` arşivi indirilir,
+//! doğrulanır ve açılır; uygulama kapanınca bir `/bin/sh` betiği `/Applications/KaradelikDev.app`'i yenisiyle değiştirip
+//! `open` ile açar. Eski istemciler yalnız `url`/`sha256` (Windows kurulum programı) alanlarını okur.
 
 use crate::kcore::{log, paths};
 use crate::services::{self, Svc};
@@ -17,12 +21,53 @@ const LATEST_URL: &str = "https://github.com/enesbsafak/karadelikdev/releases/la
 #[derive(Clone, Debug, Deserialize)]
 pub struct Latest {
     pub version: String,
-    /// Kurulum programı (KaradelikDev-<sürüm>-setup.exe).
+    /// Kurulum programı (KaradelikDev-<sürüm>-setup.exe). Bu platformun girdisi `platforms`'ta varsa o kullanılır.
+    #[serde(default)]
     pub url: String,
     /// Kurulum programının SHA-256 özeti.
+    #[serde(default)]
     pub sha256: String,
     #[serde(default)]
     pub notes: String,
+    /// Platforma özgü paketler: "windows-x86_64", "macos-aarch64", "macos-x86_64".
+    #[serde(default)]
+    pub platforms: std::collections::BTreeMap<String, Asset>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Asset {
+    pub url: String,
+    pub sha256: String,
+}
+
+/// Bu derlemenin `latest.json` platform anahtarı.
+pub fn platform_key() -> &'static str {
+    if cfg!(windows) {
+        "windows-x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "macos-aarch64"
+    } else {
+        "macos-x86_64"
+    }
+}
+
+/// Bu platformun indirme dosya adı (sürüm, SHA256SUMS.txt'de aranır).
+fn asset_name(version: &str) -> String {
+    if cfg!(windows) {
+        format!("KaradelikDev-{version}-setup.exe")
+    } else {
+        format!("KaradelikDev-{version}-{}.app.tar.gz", platform_key())
+    }
+}
+
+impl Latest {
+    /// Bu platform için (url, sha256).
+    pub fn asset(&self) -> Option<(String, String)> {
+        if let Some(a) = self.platforms.get(platform_key()) {
+            return Some((a.url.clone(), a.sha256.clone()));
+        }
+        (cfg!(windows) && !self.url.is_empty()).then(|| (self.url.clone(), self.sha256.clone()))
+    }
 }
 
 /// Bu oturumda bulunan yeni sürüm (menü ve ana pencere gösterir).
@@ -48,10 +93,12 @@ fn fetch_latest() -> Result<Latest> {
     let test_url = std::env::var("KARADELIK_UPDATE_URL").ok().filter(|_| cfg!(debug_assertions));
     let body = crate::packages::fetch_text(test_url.as_deref().unwrap_or(LATEST_URL))?;
     let l: Latest = serde_json::from_str(&body).context("latest.json")?;
-    if test_url.is_none() && !l.url.starts_with("https://github.com/enesbsafak/karadelikdev/releases/download/") {
-        bail!("latest.json: beklenmeyen indirme adresi {}", l.url);
+    let (url, sha) = l.asset().ok_or_else(|| anyhow::anyhow!("latest.json: {} paketi yok", platform_key()))?;
+    if test_url.is_none() && !url.starts_with("https://github.com/enesbsafak/karadelikdev/releases/download/") {
+        bail!("latest.json: beklenmeyen indirme adresi {url}");
     }
-    if !l.url.to_lowercase().ends_with(".exe") || l.sha256.len() != 64 {
+    let ext = if cfg!(windows) { ".exe" } else { ".app.tar.gz" };
+    if !url.to_lowercase().ends_with(ext) || sha.len() != 64 {
         bail!("latest.json: kurulum programı veya SHA-256 eksik");
     }
     Ok(l)
@@ -102,7 +149,8 @@ fn releases_base() -> String {
 }
 
 /// Geri dönülebilecek en eski sürüm: 1.2.0 kullanıcı başına kuruluyordu, ona dönmek iki ayrı kurulum bırakır.
-const MIN_ROLLBACK: &str = "1.2.1";
+/// macOS'un ilk sürümü 1.3.0'dır.
+const MIN_ROLLBACK: &str = if cfg!(windows) { "1.2.1" } else { "1.3.0" };
 
 fn previous_file() -> PathBuf {
     paths().backup().join("app").join("previous-version.txt")
@@ -122,7 +170,7 @@ fn download_setup(url: &str, version: &str, sha256: &str) -> Result<PathBuf> {
     let dir = paths().tmp().join("update");
     let _ = crate::util::remove_dir_force(&dir);
     fs::create_dir_all(&dir)?;
-    let setup = dir.join(format!("KaradelikDev-{version}-setup.exe"));
+    let setup = dir.join(asset_name(version));
     crate::packages::download(url, &setup, &format!("KaradelikDev {version}"))?;
     crate::packages::progress_done();
     if !sha256_file(&setup)?.eq_ignore_ascii_case(sha256) {
@@ -134,7 +182,8 @@ fn download_setup(url: &str, version: &str, sha256: &str) -> Result<PathBuf> {
 
 /// Yeni sürümün kurulum programını indirir ve doğrular; geri dönüş için şimdiki sürümü not eder.
 pub fn download(l: &Latest) -> Result<PathBuf> {
-    let setup = download_setup(&l.url, &l.version, &l.sha256)?;
+    let (url, sha) = l.asset().ok_or_else(|| anyhow::anyhow!("latest.json: {} paketi yok", platform_key()))?;
+    let setup = download_setup(&url, &l.version, &sha)?;
     fs::create_dir_all(previous_file().parent().unwrap())?;
     fs::write(previous_file(), current_version())?;
     Ok(setup)
@@ -144,7 +193,7 @@ pub fn download(l: &Latest) -> Result<PathBuf> {
 /// Program Files'taki exe yönetici izni olmadan değiştirilemediği için geri dönüş de setup ile yapılır.
 pub fn download_previous() -> Result<PathBuf> {
     let v = previous_version().ok_or_else(|| anyhow::anyhow!(crate::i18n::t("msg.no_previous_version")))?;
-    let name = format!("KaradelikDev-{v}-setup.exe");
+    let name = asset_name(&v);
     let sums = crate::packages::fetch_text(&format!("{}/v{v}/SHA256SUMS.txt", releases_base()))?;
     let sha = sums
         .lines()
@@ -172,9 +221,83 @@ fn running_list() -> String {
     if running.is_empty() { "-".to_string() } else { running.join(",") }
 }
 
+/// macOS: arşivi açar, bu süreç kapanınca `.app`'i değiştirip yeniden açan bir `/bin/sh` betiği bırakır ve çıkar.
+#[cfg(not(windows))]
+fn relaunch(archive: Option<&Path>, resume: bool) -> Result<()> {
+    let q = |p: &Path| crate::platform::sh_quote(&p.display().to_string());
+    let bundle = crate::platform::app_bundle();
+    let mut script = format!("while kill -0 {} 2>/dev/null; do sleep 0.3; done\n", std::process::id());
+    // .app dışında (geliştirme derlemesi) yalnız yeniden başlatılabilir
+    let Some(bundle) = bundle else {
+        if archive.is_some() {
+            bail!(crate::i18n::t("msg.update_not_bundle"));
+        }
+        services::stop_all();
+        script.push_str(&format!("{} >/dev/null 2>&1 &\n", q(&exe_path()?)));
+        return spawn_and_exit(&script);
+    };
+    if let Some(archive) = archive {
+        let stage = paths().tmp().join("update").join("stage");
+        let _ = crate::util::remove_dir_force(&stage);
+        fs::create_dir_all(&stage)?;
+        let gz = flate2::read::GzDecoder::new(std::io::BufReader::new(File::open(archive)?));
+        tar::Archive::new(gz).unpack(&stage).context("app.tar.gz")?;
+        let new_app = fs::read_dir(&stage)?
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().map(|e| e == "app").unwrap_or(false) && p.join("Contents").join("MacOS").is_dir())
+            .ok_or_else(|| anyhow::anyhow!("app.tar.gz: .app yok"))?;
+        let old = bundle.with_extension("app.old");
+        script.push_str(&format!(
+            "rm -rf {old} && mv {cur} {old} && mv {new} {cur} || {{ [ -d {old} ] && [ ! -d {cur} ] && mv {old} {cur}; }}\n\
+             rm -rf {old}\n\
+             /usr/bin/xattr -dr com.apple.quarantine {cur} 2>/dev/null\n",
+            old = q(&old),
+            cur = q(&bundle),
+            new = q(&new_app),
+        ));
+    }
+    let list = running_list();
+    crate::tunnel::stop();
+    services::stop_all();
+    // KARADELIK_ROOT ile çalışıyorsa yeni süreç de aynı kökü kullansın (open ortam değişkenlerini aktarmaz)
+    let env = std::env::var("KARADELIK_ROOT")
+        .ok()
+        .filter(|r| !r.trim().is_empty())
+        .map(|r| format!("--env {} ", crate::platform::sh_quote(&format!("KARADELIK_ROOT={r}"))))
+        .unwrap_or_default();
+    if resume {
+        script.push_str(&format!("/usr/bin/open -n {env}{} --args --updated {}\n", q(&bundle), crate::platform::sh_quote(&list)));
+    } else {
+        script.push_str(&format!("/usr/bin/open -n {env}{}\n", q(&bundle)));
+    }
+    spawn_and_exit(&script)
+}
+
+#[cfg(not(windows))]
+fn spawn_and_exit(script: &str) -> Result<()> {
+    let file = paths().tmp().join("update").join("relaunch.sh");
+    fs::create_dir_all(file.parent().unwrap())?;
+    fs::write(&file, script)?;
+    // Ayrı süreç grubunda: uygulama kapanırken etkilenmesin
+    crate::platform::hidden("/bin/sh")
+        .arg(&file)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("sh")?;
+    if let Some(a) = crate::kcore::app() {
+        a.exit(0);
+    }
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    std::process::exit(0);
+}
+
 /// Servisleri durdurur, bu süreç kapandıktan sonra çalışacak gizli bir PowerShell bırakır ve çıkar (tek örnek kilidi
 /// yüzünden yeni süreç eskisi açıkken başlatılamaz). PowerShell varsa önce setup'ı sessizce çalıştırır, sonra
 /// kurulu exe'yi açar. `resume`: yeni süreç önceden çalışan servisleri başlatır (`--updated`).
+#[cfg(windows)]
 fn relaunch(setup: Option<&Path>, resume: bool) -> Result<()> {
     let list = running_list();
     crate::tunnel::stop();
@@ -243,6 +366,25 @@ pub fn resume_services(list: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn latest_platforms() {
+        // Eski biçim (yalnız Windows kurulum programı)
+        let old: Latest = serde_json::from_str(r#"{"version":"1.2.1","url":"https://x/a-setup.exe","sha256":"ab","notes":""}"#).unwrap();
+        assert_eq!(old.asset().is_some(), cfg!(windows));
+        let new: Latest = serde_json::from_str(
+            r#"{"version":"1.3.0","url":"https://x/s.exe","sha256":"aa","platforms":{"macos-aarch64":{"url":"https://x/m.app.tar.gz","sha256":"bb"},"macos-x86_64":{"url":"https://x/i.app.tar.gz","sha256":"cc"}}}"#,
+        )
+        .unwrap();
+        let (url, _) = new.asset().unwrap();
+        if cfg!(windows) {
+            assert_eq!(url, "https://x/s.exe");
+        } else if cfg!(target_arch = "aarch64") {
+            assert_eq!(url, "https://x/m.app.tar.gz");
+        } else {
+            assert_eq!(url, "https://x/i.app.tar.gz");
+        }
+    }
 
     #[test]
     fn versions() {

@@ -114,8 +114,53 @@ pub fn update_cacert(force: bool) -> Result<()> {
     Ok(())
 }
 
+/// macOS: `bin/php` altındaki sürümler Homebrew formüllerine bağlıdır; yama sürümleri `brew upgrade` ile gelir
+/// (klasör adı x.y olduğu için profil ve php.ini aynı kalır). `install` false ise yalnız listeler.
+#[cfg(not(windows))]
+pub fn check_php_updates(install: bool) -> Result<Vec<String>> {
+    let installed = crate::versions::installed("php");
+    if installed.is_empty() {
+        return Err(anyhow!(tf("msg.not_installed", &["PHP"])));
+    }
+    let brew = crate::platform::brew().ok_or_else(|| anyhow!(crate::i18n::t("setup.brew_missing")))?;
+    let formulas: Vec<String> = installed
+        .iter()
+        .filter_map(|v| std::fs::read_link(paths().bin().join("php").join(v)).ok())
+        .filter_map(|t| t.file_name().map(|f| f.to_string_lossy().to_string()))
+        .filter(|f| f == "php" || f.starts_with("php@"))
+        .collect();
+    if formulas.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut c = util::hidden(&brew);
+    c.args(["outdated", "--json=v2"]).args(&formulas).env("HOMEBREW_NO_AUTO_UPDATE", "1");
+    let out = c.output()?;
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_default();
+    let mut list = Vec::new();
+    for f in v["formulae"].as_array().cloned().unwrap_or_default() {
+        let name = f["name"].as_str().unwrap_or_default().to_string();
+        let latest = f["current_version"].as_str().unwrap_or_default().to_string();
+        if !install {
+            list.push(tf("msg.update_available", &["PHP", &latest]));
+            continue;
+        }
+        crate::kcore::status(&format!("brew upgrade {name}"));
+        let mut u = util::hidden(&brew);
+        u.args(["upgrade", &name]).env("HOMEBREW_NO_ENV_HINTS", "1").env("NONINTERACTIVE", "1");
+        let (code, text) = util::run_capture(u)?;
+        util::append_line(&paths().logs().join("brew.log"), &text);
+        if code != 0 {
+            return Err(anyhow!("brew upgrade {name}: {}", text.lines().rev().take(4).collect::<Vec<_>>().join("\n")));
+        }
+        log(&format!("PHP {latest} Homebrew ile güncellendi ({name})"));
+        list.push(tf("msg.update_added", &["PHP", &latest]));
+    }
+    Ok(list)
+}
+
 /// Kurulu her PHP alt sürümü (8.3, 8.4...) için windows.php.net'te daha yenisi var mı?
 /// `install` true ise indirip bin\php altına ekler (profil değiştirilmez, Laragon ile aynı).
+#[cfg(windows)]
 pub fn check_php_updates(install: bool) -> Result<Vec<String>> {
     let body = crate::packages::fetch_text("https://windows.php.net/downloads/releases/releases.json")?;
     let rel: serde_json::Value = serde_json::from_str(&body)?;

@@ -34,6 +34,11 @@ function buildServices() {
 }
 
 function fill(meta) {
+  // Terminal seçenekleri platforma göre (Windows: wt/cmd/PowerShell/Cmder, macOS: Terminal/iTerm2)
+  const term = $('terminal');
+  term.textContent = '';
+  for (const [value, label] of meta.terminals) term.append(el('option', { value }, label));
+  if (![...term.options].some((o) => o.value === settings.terminal)) settings.terminal = 'auto';
   const lang = $('language');
   lang.textContent = '';
   for (const [code, name] of meta.languages) lang.append(el('option', { value: code }, name));

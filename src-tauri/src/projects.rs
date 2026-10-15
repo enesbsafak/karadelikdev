@@ -50,7 +50,7 @@ pub fn set(name: &str, cfg: &ProjectCfg) -> Result<()> {
         bail!(crate::i18n::tf("msg.not_installed", &[&cfg.php]));
     }
     if !cfg.php.is_empty() && !has_cgi(&cfg.php) {
-        bail!(crate::i18n::tf("msg.not_installed", &[&format!("{}\\php-cgi.exe", cfg.php)]));
+        bail!(crate::i18n::tf("msg.not_installed", &[&format!("{} php-cgi", cfg.php)]));
     }
     let mut ini = Ini::load_from_file(file()).unwrap_or_default();
     let key = name.to_lowercase();
@@ -69,7 +69,7 @@ pub fn set(name: &str, cfg: &ProjectCfg) -> Result<()> {
 }
 
 pub fn has_cgi(ver: &str) -> bool {
-    crate::php::dir_for(ver).join("php-cgi.exe").is_file()
+    crate::php::cgi_exe_for(&crate::php::dir_for(ver)).is_some()
 }
 
 /// Profildekinden farklı PHP isteyen (ve proxy kullanmayan) mevcut projelerin sürümleri -> php-cgi portu.

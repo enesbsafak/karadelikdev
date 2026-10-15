@@ -54,7 +54,7 @@ pub fn share(host: &str) -> Result<String> {
 }
 
 fn cloudflared(host: &str, port: u16) -> Result<(String, Child)> {
-    let exe = find("cloudflared", "cloudflared.exe").ok_or_else(|| anyhow!(tf("msg.tool_missing", &["cloudflared"])))?;
+    let exe = find("cloudflared", &crate::platform::exe("cloudflared")).ok_or_else(|| anyhow!(tf("msg.tool_missing", &["cloudflared"])))?;
     let mut c = hidden(exe);
     c.args(["tunnel", "--no-autoupdate", "--url", &format!("http://localhost:{port}"), "--http-host-header", host])
         .stdout(Stdio::null())
@@ -82,7 +82,7 @@ fn cloudflared(host: &str, port: u16) -> Result<(String, Child)> {
 }
 
 fn ngrok(host: &str, port: u16) -> Result<(String, Child)> {
-    let exe = find("ngrok", "ngrok.exe").ok_or_else(|| anyhow!(tf("msg.tool_missing", &["ngrok"])))?;
+    let exe = find("ngrok", &crate::platform::exe("ngrok")).ok_or_else(|| anyhow!(tf("msg.tool_missing", &["ngrok"])))?;
     let token = settings().ngrok_token;
     if token.trim().is_empty() {
         bail!(t("msg.ngrok_token"));

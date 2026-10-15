@@ -36,15 +36,32 @@ pub fn ini_path() -> Option<PathBuf> {
 }
 
 pub fn php_exe() -> Option<PathBuf> {
-    dir().map(|d| d.join("php.exe")).filter(|p| p.exists())
+    dir().and_then(|d| bin_file(&d, "php"))
 }
 
 pub fn cgi_exe() -> Option<PathBuf> {
-    dir().map(|d| d.join("php-cgi.exe")).filter(|p| p.exists())
+    dir().and_then(|d| cgi_exe_for(&d))
 }
 
-/// Apache modülü: TS (thread safe) derlemelerinde php8apache2_4.dll bulunur.
+/// Sürüm klasöründeki çalıştırılabilir dosya: Windows `php-8.4/php.exe`, Homebrew `php-8.4/bin/php`.
+fn bin_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let n = crate::platform::exe(name);
+    [dir.join(&n), dir.join("bin").join(&n)].into_iter().find(|p| p.is_file())
+}
+
+/// Bir PHP sürüm klasörünün php-cgi'si.
+pub fn cgi_exe_for(dir: &Path) -> Option<PathBuf> {
+    bin_file(dir, "php-cgi")
+}
+
+/// Apache modülü: TS (thread safe) derlemelerinde php8apache2_4.dll bulunur; Homebrew PHP'de libphp.so.
 pub fn apache_dll(dir: &Path) -> Option<(String, String)> {
+    #[cfg(target_os = "macos")]
+    for (so, module) in [("lib/httpd/modules/libphp.so", "php_module"), ("lib/httpd/modules/libphp7.so", "php7_module")] {
+        if dir.join(so).exists() {
+            return Some((so.to_string(), module.to_string()));
+        }
+    }
     for (dll, module) in [
         ("php8apache2_4.dll", "php_module"),
         ("php7apache2_4.dll", "php7_module"),
@@ -102,9 +119,8 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
     let mut content = if ini.exists() {
         read_ini(&ini)
     } else {
-        let src = ["php.ini", "php.ini-development", "php.ini-production"]
-            .iter()
-            .map(|n| pdir.join(n))
+        let src = ini_sources(&pdir)
+            .into_iter()
             .find(|f| f.exists())
             .ok_or_else(|| anyhow!("php.ini-development bulunamadı: {}", pdir.display()))?;
         let mut c = read_ini(&src);
@@ -129,17 +145,21 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
     };
     let cacert = p.ssl().join("cacert.pem");
     let mut managed: Vec<(&str, String)> = vec![
-        ("extension_dir", format!("\"{}\"", fwd(&pdir.join("ext")))),
         ("error_log", format!("\"{}\"", fwd(&p.logs().join("php_errors.log")))),
         ("session.save_path", format!("\"{}\"", fwd(&p.tmp().join("sessions")))),
         ("upload_tmp_dir", format!("\"{}\"", fwd(&p.tmp()))),
         ("sys_temp_dir", format!("\"{}\"", fwd(&p.tmp()))),
     ];
+    // Windows zip'inde eklentiler sürüm klasörünün ext\ dizinindedir. Homebrew PHP'de derlemedeki varsayılan
+    // (pecl eklentilerinin kurulduğu yer) kalır.
+    if pdir.join("ext").is_dir() {
+        managed.insert(0, ("extension_dir", format!("\"{}\"", fwd(&pdir.join("ext")))));
+    }
     if cacert.exists() {
         managed.push(("curl.cainfo", format!("\"{}\"", fwd(&cacert))));
         managed.push(("openssl.cafile", format!("\"{}\"", fwd(&cacert))));
     }
-    if let Some(mp) = versions::exe("mailpit", "mailpit.exe") {
+    if let Some(mp) = versions::exe("mailpit", &crate::platform::exe("mailpit")) {
         let port = settings().svc("mailpit").port;
         managed.push(("sendmail_path", format!("\"{} sendmail --smtp-addr=127.0.0.1:{port}\"", fwd(&mp))));
     }
@@ -150,6 +170,34 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
     Ok(ini)
 }
 
+/// Yeni php.ini'nin kopyalanacağı kaynaklar (öncelik sırasıyla). Homebrew'da sürüm klasörü yalnız ikilileri
+/// içerir; php.ini `<önek>/etc/php/<x.y>/` altındadır.
+fn ini_sources(pdir: &Path) -> Vec<PathBuf> {
+    #[allow(unused_mut)]
+    let mut v: Vec<PathBuf> = ["php.ini", "php.ini-development", "php.ini-production"].iter().map(|n| pdir.join(n)).collect();
+    #[cfg(target_os = "macos")]
+    if let Some(php) = bin_file(pdir, "php") {
+        let real = fs::canonicalize(&php).unwrap_or(php.clone());
+        // .../Cellar/php@8.3/8.3.35_1/bin/php -> "8.3"
+        let mm = real
+            .parent()
+            .and_then(|b| b.parent())
+            .and_then(|v| v.file_name())
+            .map(|v| v.to_string_lossy().split('.').take(2).collect::<Vec<_>>().join("."))
+            .unwrap_or_default();
+        if let Some(prefix) = crate::platform::cellar_prefix(&php) {
+            let etc = prefix.join("etc").join("php").join(&mm);
+            v.push(etc.join("php.ini-development"));
+            v.push(etc.join("php.ini"));
+            v.push(etc.join("php.ini-production"));
+        }
+        if let Some(cellar) = real.parent().and_then(|b| b.parent()) {
+            v.push(cellar.join(".bottle").join("etc").join("php").join(&mm).join("php.ini-production"));
+        }
+    }
+    v
+}
+
 /// php.ini'yi LF satır sonlarıyla okur (Laragon'un dosyaları CRLF; regex'ler satır sonuna bakar).
 pub fn read_ini(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_default().replace("\r\n", "\n")
@@ -158,7 +206,7 @@ pub fn read_ini(path: &Path) -> String {
 fn ext_line_re(name: &str) -> Regex {
     // extension=curl | extension=php_curl.dll | zend_extension=opcache | zend_extension="C:/.../php_xdebug.dll"
     Regex::new(&format!(
-        r#"(?mi)^[ \t]*(;?)[ \t]*(zend_)?extension[ \t]*=[ \t]*"?(?:[^"\r\n]*[/\\])?(?:php_)?{}(?:\.dll)?"?[ \t]*(?:;[^\r\n]*)?\r?$"#,
+        r#"(?mi)^[ \t]*(;?)[ \t]*(zend_)?extension[ \t]*=[ \t]*"?(?:[^"\r\n]*[/\\])?(?:php_)?{}(?:\.dll|\.so)?"?[ \t]*(?:;[^\r\n]*)?\r?$"#,
         regex::escape(name)
     ))
     .unwrap()
@@ -201,20 +249,38 @@ pub fn extension_enabled(content: &str, name: &str) -> bool {
         .any(|c| c.get(1).map(|m| m.as_str().is_empty()).unwrap_or(false))
 }
 
+/// Paylaşımlı eklenti dosyalarının adları: Windows `ext/php_<ad>.dll`, Homebrew `<extension_dir>/<ad>.so`
+/// (pecl ile kurulanlar; çekirdek eklentiler derlemenin içindedir, opcache conf.d ile yüklenir).
+fn ext_names(pdir: &Path, ini_content: &str) -> Vec<String> {
+    let win = pdir.join("ext");
+    if win.is_dir() {
+        return fs::read_dir(win)
+            .map(|rd| {
+                rd.flatten()
+                    .filter_map(|e| {
+                        let n = e.file_name().to_string_lossy().to_lowercase();
+                        n.strip_prefix("php_").and_then(|x| x.strip_suffix(".dll")).map(|x| x.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+    let Some(ext_dir) = get_value(ini_content, "extension_dir").filter(|d| !d.is_empty()) else { return vec![] };
+    fs::read_dir(ext_dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter_map(|e| e.file_name().to_string_lossy().to_lowercase().strip_suffix(".so").map(str::to_string))
+                .filter(|n| n != "opcache")
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// ext dizinindeki eklentiler ve durumları.
 pub fn extensions() -> Vec<(String, bool)> {
     let (Some(d), Some(ini)) = (dir(), ini_path()) else { return vec![] };
     let content = read_ini(&ini);
-    let mut v: Vec<String> = fs::read_dir(d.join("ext"))
-        .map(|rd| {
-            rd.flatten()
-                .filter_map(|e| {
-                    let n = e.file_name().to_string_lossy().to_lowercase();
-                    n.strip_prefix("php_").and_then(|x| x.strip_suffix(".dll")).map(|x| x.to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut v = ext_names(&d, &content);
     v.sort();
     v.into_iter().map(|n| { let on = extension_enabled(&content, &n); (n, on) }).collect()
 }
@@ -230,10 +296,22 @@ pub fn toggle_extension(name: &str) -> Result<bool> {
 
 fn xdebug_name() -> Option<String> {
     let d = dir()?;
-    fs::read_dir(d.join("ext")).ok()?.flatten().find_map(|e| {
-        let n = e.file_name().to_string_lossy().to_lowercase();
-        (n.starts_with("php_xdebug") && n.ends_with(".dll")).then(|| n.trim_start_matches("php_").trim_end_matches(".dll").to_string())
-    })
+    let content = ini_path().map(|i| read_ini(&i)).unwrap_or_default();
+    ext_names(&d, &content).into_iter().find(|n| n.starts_with("xdebug"))
+}
+
+/// Homebrew PHP'de opcache conf.d'deki ext-opcache.ini ile (8.5'ten itibaren derlemede) zaten yüklüdür;
+/// php.ini'ye ikinci kez eklenirse "already loaded" uyarısı çıkar. Orada aç/kapa `opcache.enable` ile yapılır.
+fn opcache_by_setting(pdir: &Path) -> bool {
+    !pdir.join("ext").is_dir()
+}
+
+fn opcache_on(pdir: &Path, c: &str) -> bool {
+    if opcache_by_setting(pdir) {
+        get_value(c, "opcache.enable").map(|v| !matches!(v.to_lowercase().as_str(), "0" | "off" | "false" | "")).unwrap_or(true)
+    } else {
+        extension_enabled(c, "opcache")
+    }
 }
 
 /// Laragon'daki "Quick settings" menüsü: (anahtar, etiket, açık mı).
@@ -246,7 +324,7 @@ pub fn quick_settings() -> Vec<(String, String, bool)> {
         ("upload_max_filesize".to_string(), "upload_max_filesize = 2G".to_string(), val("upload_max_filesize").eq_ignore_ascii_case("2G")),
         ("memory_limit".to_string(), "memory_limit = 512M".to_string(), val("memory_limit").eq_ignore_ascii_case("512M")),
         ("display_errors".to_string(), "display_errors = On".to_string(), val("display_errors").eq_ignore_ascii_case("on")),
-        ("opcache".to_string(), "opcache".to_string(), extension_enabled(&c, "opcache")),
+        ("opcache".to_string(), "opcache".to_string(), dir().map(|d| opcache_on(&d, &c)).unwrap_or(false)),
     ];
     if let Some(x) = xdebug_name() {
         v.insert(0, ("xdebug".to_string(), "xdebug".to_string(), extension_enabled(&c, &x)));
@@ -277,8 +355,14 @@ pub fn toggle_quick(key: &str) -> Result<()> {
             c = set_value(&c, key, v);
         }
         "opcache" => {
-            let on = !extension_enabled(&c, "opcache");
-            c = set_extension(&c, "opcache", on, true);
+            let d = dir().ok_or_else(|| anyhow!(crate::i18n::tf("msg.not_installed", &["PHP"])))?;
+            if opcache_by_setting(&d) {
+                let on = !opcache_on(&d, &c);
+                c = set_value(&c, "opcache.enable", if on { "1" } else { "0" });
+            } else {
+                let on = !extension_enabled(&c, "opcache");
+                c = set_extension(&c, "opcache", on, true);
+            }
         }
         "xdebug" => {
             let x = xdebug_name().ok_or_else(|| anyhow!(crate::i18n::t("msg.no_xdebug")))?;
@@ -323,7 +407,10 @@ pub fn write_apache_php_conf() -> Result<bool> {
         let n = settings().php_upstream.max(1);
         let members: Vec<String> =
             (0..n).map(|i| format!("    BalancerMember \"fcgi://127.0.0.1:{}\"", 9001 + i)).collect();
-        crate::templates::render_named("apache.php.fcgi.tpl", &[("BALANCER_MEMBERS", members.join("\n"))])
+        crate::templates::render_named(
+            "apache.php.fcgi.tpl",
+            &[("BALANCER_MEMBERS", members.join("\n")), ("SCRIPT_FIX", crate::templates::fcgi_script_fix("    "))],
+        )
     };
     // Proje başına seçilen diğer PHP sürümleri: her biri kendi php-cgi'sine giden bir balancer (vhost'lar kullanır).
     // Doğrudan "proxy:fcgi://host:port" Windows yollarıyla (C:/...) birleşince geçersiz URL üretir.
@@ -375,7 +462,11 @@ fn apache_preload(pdir: &Path) -> Vec<String> {
 /// PHP ve eklentilerinin DLL bağımlılıkları için PATH (Apache/php-cgi ortamına eklenir).
 pub fn env_path() -> Option<String> {
     let d = dir()?;
-    Some(format!("{};{}", d.display(), d.join("ext").display()))
+    let mut parts = vec![d.display().to_string(), d.join("ext").display().to_string()];
+    if d.join("bin").is_dir() {
+        parts.push(d.join("bin").display().to_string());
+    }
+    Some(crate::platform::join_path(parts))
 }
 
 #[cfg(test)]

@@ -64,6 +64,12 @@ a:hover { text-decoration: underline; }
 .win-btn { width: 44px; height: 44px; border-radius: 0; }
 .win-btn.close:hover { background: #c42b1c; color: #fff; }
 
+/* macOS: sistem başlık çubuğu (trafik ışıkları) içeriğin üzerinde; pencere düğmeleri gizlenir */
+html.mac body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+html.mac .app { border: 0; }
+html.mac .titlebar { padding-left: 88px; padding-right: 8px; }
+html.mac .win-btn { display: none; }
+
 .notice {
   display: flex; align-items: center; gap: 10px;
   margin: 10px 12px 0; padding: 8px 10px; border-radius: var(--radius);
@@ -170,7 +176,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .dialog .message { white-space: pre-wrap; color: var(--text); margin-bottom: 12px; user-select: text; }
 .dialog pre {
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin: 0 0 12px;
-  max-height: 230px; overflow: auto; font: 12px/1.45 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; user-select: text;
+  max-height: 230px; overflow: auto; font: 12px/1.45 Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace; white-space: pre-wrap; user-select: text;
 }
 .dialog .qr { display: flex; justify-content: center; margin: 4px 0 12px; }
 .dialog .qr svg { background: #fff; border-radius: 8px; padding: 6px; }
@@ -192,7 +198,7 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
 .progress.wide { width: 100%; height: 6px; margin: 4px 0 8px; }
 pre.log {
   background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin-top: 10px;
-  height: 330px; overflow: auto; font: 12px/1.5 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; user-select: text;
+  height: 330px; overflow: auto; font: 12px/1.5 Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace; white-space: pre-wrap; user-select: text;
 }
 .notice + .notice { margin-top: 6px; }
 .content .notice { margin: 0 0 12px; }
@@ -205,7 +211,7 @@ pre.log {
 .spacer { flex: 1; }
 .conn-grid { display: grid; grid-template-columns: 90px auto 1fr; gap: 6px 10px; align-items: center; }
 .conn-grid label { color: var(--muted); }
-.conn-grid code, .pw code { font: 13px Consolas, "Cascadia Mono", monospace; user-select: text; }
+.conn-grid code, .pw code { font: 13px Consolas, "Cascadia Mono", "SF Mono", Menlo, monospace; user-select: text; }
 .conn-grid > .btn { justify-self: start; }
 .pw { display: flex; align-items: center; gap: 8px; }
 .row-actions { display: flex; gap: 6px; }
