@@ -90,10 +90,15 @@ jobs:
         run: cd src-tauri && cargo build
       - name: Homebrew paketleri
         run: brew install httpd php php@8.3 nginx mysql@8.4 redis memcached mailpit postgresql@17
-      # Homebrew'da hazır MariaDB paketi her macOS sürümü/mimarisi için yok; kaynaktan derlenmesi ek servis testinin
-      # bekleme süresini aşmasın diye önceden kurulur (test yalnız bağlar)
+      # Homebrew'da hazır MariaDB paketi her macOS sürümü/mimarisi için yok (2026-10: yalnız macOS 27 arm64);
+      # kaynaktan derleme CI süresini aşar. Hazır paket yoksa MariaDB bölümü atlanır (KD_SKIP_MARIADB).
       - name: Homebrew MariaDB
-        run: brew install mariadb@11.8
+        run: |
+          if brew fetch --force-bottle mariadb@11.8 >/dev/null 2>&1; then
+            brew install mariadb@11.8
+          else
+            echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok" >> "$GITHUB_ENV"
+          fi
       - name: Ayarlar (SSL açık, ilk kurulum geçildi, sahte hosts dosyası)
         run: |
           mkdir -p "$KARADELIK_ROOT/usr"

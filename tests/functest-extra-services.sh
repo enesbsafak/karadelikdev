@@ -41,6 +41,12 @@ do_ svc:mongodb:stop
 waitfor 30 '! port 27017' && ok "MongoDB durdur" || bad "mongo stop" "açık"
 
 echo "== MariaDB"
+if [ -n "${KD_SKIP_MARIADB:-}" ]; then
+  echo "  - atlandı: $KD_SKIP_MARIADB"
+  do_ stopall; waitfor 40 '! port $AP && ! port $MP' && ok "Tümünü durdur" || bad "stopall" "açık port"
+  echo; echo "SONUÇ: $P başarılı, $F başarısız"; for f in "${FAILS[@]}"; do echo "  - $f"; done
+  [ "$F" -eq 0 ]; exit
+fi
 do_ pkg:$MDB_PKG
 waitfor 900 '[ -n "$(first $R/bin/mysql/mariadb-11.8*/bin/mysqld$X $R/bin/mysql/mariadb-11.8*/bin/mariadbd$X)" ]' && ok "MariaDB indir + aç" || bad "mariadb pkg" "ikili yok"
 MDB=$(ls -d $R/bin/mysql/mariadb-11.8* 2>/dev/null | head -1 | xargs -n1 basename 2>/dev/null)
