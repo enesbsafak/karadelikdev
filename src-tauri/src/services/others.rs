@@ -45,7 +45,15 @@ pub fn postgres_start() -> Result<()> {
     let data = pg_data().unwrap();
     if !data.join("PG_VERSION").exists() {
         crate::kcore::status(&t("msg.initializing"));
-        std::fs::create_dir_all(&data)?;
+        // Klasörü initdb oluştursun: var olan klasörün izinlerini değiştirmeye çalışır ve Windows'ta devralınan
+        // izinlerle "could not change permissions ... Permission denied" verebilir. Önceki başarısız denemeden
+        // kalan boş klasör silinir.
+        if data.is_dir() && std::fs::read_dir(&data).map(|mut r| r.next().is_none()).unwrap_or(false) {
+            let _ = std::fs::remove_dir(&data);
+        }
+        if let Some(parent) = data.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let mut c = hidden(bin.join(exe("initdb")));
         c.arg("-D").arg(&data).args(["-U", "postgres", "-A", "trust", "-E", "UTF8", "--locale=C"]);
         let (code, out) = util::run_logged(c, &pg_log(), Duration::from_secs(180))?;

@@ -201,7 +201,8 @@ waitfor 30 '[ $(mtime $R/etc/ssl/cacert.pem) -gt $t1 ]' && ok "cacert.pem günce
 
 echo "== Profil"
 do_ profile_create kdprof; waitfor 10 '[ -f $R/usr/profile/kdprof.ini ] && grep -q "Profile=kdprof" $R/usr/karadelik.ini' && ok "profil oluştur + geç" || bad "profile_create" "yok"
-do_ profile:default; waitfor 30 'grep -q "Profile=default" $R/usr/karadelik.ini' && ok "profile geri dön" || bad "profile switch" "değişmedi"
+# Profil değişince çalışan servisler arka planda yeniden başlatılır; sonraki testler onları açık bekler
+do_ profile:default; waitfor 30 'grep -q "Profile=default" $R/usr/karadelik.ini' && sleep 2 && waitfor 60 'port $AP && port $MP' && ok "profile geri dön (servisler yeniden başladı)" || bad "profile switch" "değişmedi"
 rm -f $R/usr/profile/kdprof.ini
 
 echo "== Paket kurulumu"
@@ -237,7 +238,7 @@ do_ ctx_toggle; waitfor 10 '[ ! -e "$WF" ]' && ok "Finder Hızlı Eylemi kaldır
 fi
 
 echo "== CLI"
-"$K" reload; sleep 3; port $AP && ok "karadelikdev reload" || bad "reload" "apache kapalı"
+"$K" reload; sleep 3; waitfor 20 'port $AP' && ok "karadelikdev reload" || bad "reload" "apache kapalı"
 "$K" stop mysql; waitfor 20 '! port $MP' && ok "karadelikdev stop mysql" || bad "cli stop" "açık"
 "$K" start mysql; waitfor 30 'port $MP' && ok "karadelikdev start mysql" || bad "cli start" "kapalı"
 

@@ -94,10 +94,11 @@ jobs:
       # kaynaktan derleme CI süresini aşar. Hazır paket yoksa MariaDB bölümü atlanır (KD_SKIP_MARIADB).
       - name: Homebrew MariaDB
         run: |
-          if brew fetch --force-bottle mariadb@11.8 >/dev/null 2>&1; then
+          TAG=$(brew ruby -e 'puts Utils::Bottles.tag' | tail -1)
+          if brew info --json=v2 mariadb@11.8 | python3 -c "import json,sys; sys.exit(0 if '$TAG' in json.load(sys.stdin)['formulae'][0]['bottle']['stable']['files'] else 1)"; then
             brew install mariadb@11.8
           else
-            echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok" >> "$GITHUB_ENV"
+            echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok ($TAG)" >> "$GITHUB_ENV"
           fi
       - name: Ayarlar (SSL açık, ilk kurulum geçildi, sahte hosts dosyası)
         run: |
