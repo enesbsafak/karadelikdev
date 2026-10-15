@@ -417,6 +417,12 @@ fn brew_install(cat: &str, formula: &str, label: &str) -> Result<PathBuf> {
                 }
             }
             if !child.wait()?.success() && required {
+                // Formül kuruldu ama ortak dosyaları bağlanamadı (ör. include/mysql başka bir MySQL'e bağlı):
+                // KaradelikDev yalnız opt/<formül> klasörünü kullanır
+                if args[0] == "install" && opt.exists() {
+                    crate::kcore::log(&format!("brew install {formula}: bağlama uyarısı (opt/{short} kullanılıyor): {}", tail.join(" | ")));
+                    continue;
+                }
                 bail!("brew {}:\n{}", args.join(" "), tail.join("\n"));
             }
         }

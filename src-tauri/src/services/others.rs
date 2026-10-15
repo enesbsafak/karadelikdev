@@ -181,7 +181,8 @@ pub fn mongo_start() -> Result<()> {
     let args = vec!["-f".to_string(), mongo_conf().display().to_string()];
     let child = util::spawn_bg(&exe, &args, None, &[], None)?;
     track("mongodb", child);
-    wait_or_fail(Svc::Mongodb, port, 20, Some(paths().logs().join("mongod.log")))
+    // İlk başlatmada veri dosyaları oluşturulur; yeni indirilen ikili virüs taramasıyla da gecikebilir
+    wait_or_fail(Svc::Mongodb, port, 60, Some(paths().logs().join("mongod.log")))
 }
 
 // ---------------------------------------------------------------- Redis

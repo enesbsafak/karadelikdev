@@ -99,7 +99,12 @@ jobs:
           TAG=$(brew ruby -e 'puts Utils::Bottles.tag' | tail -1)
           if brew info --json=v2 mariadb@11.8 | python3 -c "import json,sys; sys.exit(0 if '$TAG' in json.load(sys.stdin)['formulae'][0]['bottle']['stable']['files'] else 1)"; then
             if ! brew install mariadb@11.8 2>&1 | tee "$RUNNER_TEMP/mariadb-brew.log"; then
-              echo "KD_SKIP_MARIADB=brew install mariadb@11.8 başarısız ($TAG): $(tail -1 "$RUNNER_TEMP/mariadb-brew.log")" >> "$GITHUB_ENV"
+              # Kuruldu ama bağlanamadıysa (ör. koşucuda mysql@8.4 bağlı) KaradelikDev opt/ klasörünü kullanır
+              if [ -d "$(brew --prefix)/opt/mariadb@11.8/bin" ]; then
+                echo "mariadb@11.8 kuruldu, bağlanamadı; opt/mariadb@11.8 kullanılacak"
+              else
+                echo "KD_SKIP_MARIADB=brew install mariadb@11.8 başarısız ($TAG): $(tail -1 "$RUNNER_TEMP/mariadb-brew.log")" >> "$GITHUB_ENV"
+              fi
             fi
           else
             echo "KD_SKIP_MARIADB=bu macOS sürümü/mimarisi için Homebrew'da hazır mariadb@11.8 paketi yok ($TAG)" >> "$GITHUB_ENV"
