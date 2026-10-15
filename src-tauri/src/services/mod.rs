@@ -245,6 +245,30 @@ pub fn service_env(extra_dirs: &[PathBuf]) -> Vec<(String, String)> {
     vec![("PATH".into(), parts.join(";"))]
 }
 
+/// Web sunucularının dinleyeceği adresler. Varsayılan yalnız bu bilgisayar (127.0.0.1 ve varsa ::1);
+/// Tercihler'de "yerel ağdan erişim" açıksa tüm arabirimler (yalnız port).
+pub fn listen_addrs(port: u16) -> Vec<String> {
+    if settings().lan_access {
+        return vec![port.to_string()];
+    }
+    let mut v = vec![format!("127.0.0.1:{port}")];
+    if ipv6_loopback() {
+        v.push(format!("[::1]:{port}"));
+    }
+    v
+}
+
+/// IPv6 devre dışıysa [::1] dinlemek sunucunun açılmasını engeller.
+fn ipv6_loopback() -> bool {
+    static V6: once_cell::sync::Lazy<bool> = once_cell::sync::Lazy::new(|| std::net::TcpListener::bind("[::1]:0").is_ok());
+    *V6
+}
+
+/// Nginx `listen` satırları (ör. `ssl default_server` ekiyle).
+pub fn nginx_listen(port: u16, suffix: &str) -> String {
+    listen_addrs(port).iter().map(|a| format!("    listen {a}{suffix};")).collect::<Vec<_>>().join("\n")
+}
+
 /// Portun boş olduğunu doğrular; doluysa sahibini söyleyen hata.
 pub fn ensure_port_free(svc: Svc, port: u16) -> Result<()> {
     if !util::port_open(port) {

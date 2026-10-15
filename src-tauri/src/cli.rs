@@ -69,6 +69,7 @@ pub fn handle(args: &[String]) -> Option<i32> {
             crate::packages::ensure_defaults();
             match args.get(2).map(String::as_str) {
                 Some("start") => {
+                    crate::acl::check_root();
                     let errs = crate::services::start_all();
                     for e in &errs {
                         eprintln!("[KaradelikDev] {e}");
@@ -79,6 +80,14 @@ pub fn handle(args: &[String]) -> Option<i32> {
                     crate::services::stop_all();
                     Some(0)
                 }
+                // PostgreSQL çalışırken `postgres` parolasını ayarlar (boş = parolasız)
+                Some("pg-password") => Some(match crate::services::others::pg_set_password(args.get(3).map(String::as_str).unwrap_or("")) {
+                    Ok(_) => 0,
+                    Err(e) => {
+                        eprintln!("[KaradelikDev] {e:#}");
+                        1
+                    }
+                }),
                 _ => Some(2),
             }
         }

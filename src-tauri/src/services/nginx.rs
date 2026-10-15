@@ -38,7 +38,7 @@ pub fn write_conf() -> Result<()> {
         crate::ssl::ensure_ca()?;
         crate::ssl::ensure_host_cert("localhost")?;
         (
-            format!("    listen {} ssl default_server;", cfg.ssl_port),
+            super::nginx_listen(cfg.ssl_port, " ssl default_server"),
             format!(
                 "    ssl_certificate \"{0}/localhost.crt\";\n    ssl_certificate_key \"{0}/localhost.key\";\n    ssl_protocols TLSv1.2 TLSv1.3;\n",
                 fwd(&p.ssl())
@@ -51,6 +51,7 @@ pub fn write_conf() -> Result<()> {
         ("KD_ROOT", fwd(&p.root)),
         ("DOC_ROOT", fwd(std::path::Path::new(&s.document_root))),
         ("PORT", cfg.port.to_string()),
+        ("LISTEN", super::nginx_listen(cfg.port, " default_server")),
         ("SSL_PORT", cfg.ssl_port.to_string()),
         ("LOG_DIR", fwd(&p.logs())),
         ("NGINX_CONF", fwd(&conf_dir)),
@@ -90,6 +91,7 @@ pub fn start() -> Result<()> {
     if crate::php::dir().is_some() {
         super::phpcgi::ensure()?;
     }
+    super::phpcgi::ensure_extra()?;
     test_conf()?;
     let exe = exe().unwrap();
     let args = vec!["-p".into(), prefix(), "-c".into(), conf_path().display().to_string()];

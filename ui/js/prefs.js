@@ -4,7 +4,7 @@ const SVC_TITLES = {
   apache: 'Apache', nginx: 'Nginx', mysql: 'MySQL', postgresql: 'PostgreSQL', mongodb: 'MongoDB',
   redis: 'Redis', memcached: 'Memcached', mailpit: 'Mailpit (SMTP)', phpserver: 'PHP Server',
 };
-const BOOL = ['run_at_startup', 'run_minimized', 'auto_start', 'auto_vhosts', 'manage_hosts', 'auto_backup', 'auto_update'];
+const BOOL = ['run_at_startup', 'run_minimized', 'auto_start', 'auto_vhosts', 'manage_hosts', 'auto_backup', 'auto_update', 'app_update_check', 'lan_access'];
 const TEXT = ['language', 'document_root', 'data_dir', 'hostname_format', 'vhost_ignore', 'terminal', 'editor', 'tunnel'];
 const NUM = ['php_upstream', 'mailpit_ui_port', 'backup_interval', 'backup_keep'];
 let settings;

@@ -54,6 +54,9 @@ pub fn start() {
                 auto_backup();
                 auto_update();
             }
+            if tick % 86_400 == 0 && settings().app_update_check {
+                std::thread::spawn(crate::updater::background_check);
+            }
         }
     });
 }

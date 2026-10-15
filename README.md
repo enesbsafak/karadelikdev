@@ -49,6 +49,9 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 **Projeler**
 - **Otomatik sanal host:** `www\blog` → `http://blog.test`, alt alan adları dahil (`api.blog.test`)
 - Laravel/Symfony `public` klasörünü kendiliğinden algılama
+- **Proje başına PHP sürümü:** her proje farklı bir PHP sürümüyle çalışabilir (Apache ve Nginx, php-cgi)
+- **Node/Vite proxy:** `http://proje.test` adresini `npm run dev` gibi bir geliştirme sunucusuna yönlendirme, WebSocket/HMR dahil
+- **Projeler ekranı:** PHP sürümü, proxy portu, klasör, terminal, paylaşma, klonlama ve silme tek listede
 - hosts dosyası yönetimi (değişiklik olduğunda yönetici izni sorar)
 - **Hızlı uygulama:** Boş proje, WordPress, Laravel, Symfony, CodeIgniter; veritabanı, `.env` ve `wp-config.php` otomatik
 - Projeyi klonlama ve silme (veritabanıyla birlikte)
@@ -75,7 +78,9 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 
 **Araçlar**
 - **İlk kurulum sihirbazı:** Visual C++ çalışma zamanı denetimi, önerilen paketler, PATH, sağ tık menüsü
-- **Hızlı ekle:** `packages.conf` listesinden indir ve kur (zip, tar.gz, tar.xz)
+- **Hızlı ekle / Paketler ekranı:** `packages.conf` listesinden indir ve kur (zip, tar.gz, tar.xz), kurulu sürümler arasında geçiş
+- **Loglar ekranı:** tüm logları canlı izleme, süzme ve temizleme
+- **Uygulama içi güncelleme:** yeni sürümü SHA-256 doğrulamasıyla indirir, servisleri yeniden başlatır; tek tıkla önceki sürüme dönüş
 - **Laragon'dan içe aktar:** mevcut Laragon kurulumunun binary'lerini kopyalamadan kullanır
 - Windows Terminal / cmd / PowerShell / Cmder; tüm sürümler PATH'te hazır (`Ctrl+Alt+T`)
 - Procfile (arka plan komutları), yerleşik cron, profiller, PATH ve Explorer sağ tık menüsü
@@ -138,6 +143,12 @@ KaradelikDev, Laragon'un sevilen çalışma modelini (taşınabilir klasör, `*.
 
 **Profiller.** Seçili sürümler (PHP, MySQL, Apache…) profil olarak saklanır; Menü → Profil ile geçiş yapılır.
 
+**Proje başına PHP sürümü.** Ana pencerede Projeler → Yönet (veya Menü → KaradelikDev → Projeler) ekranında bir projeye profildekinden farklı bir PHP sürümü seçin. O sürümün `php-cgi.exe`'si 9101'den başlayan portlarda ayrıca çalıştırılır; diğer projeler profildeki sürümle devam eder. Ayarlar `usr\projects.ini`'de tutulur.
+
+**Node/Vite proxy.** Aynı ekranda **Proxy portu** alanına geliştirme sunucusunun portunu (ör. Vite için `5173`) yazın. `http://proje.test` o porta yönlendirilir; WebSocket (HMR) de geçer. Sunucuyu kendiniz başlatın (terminal veya Procfile: `Vite: npm run dev pwd=www/proje`).
+
+**Güncelleme.** KaradelikDev açılışta ve günde bir yeni sürüm olup olmadığına bakar (Tercihler → Gelişmiş'ten kapatılabilir). Menü → KaradelikDev → Güncelle: paket indirilir, SHA-256 ile doğrulanır, exe değiştirilir ve çalışan servisler uygulama yeniden açıldıktan sonra tekrar başlatılır. Önceki exe `karadelikdev.exe.old` olarak saklanır; **Önceki sürüme dön** ile geri alınabilir.
+
 ## Klasör yapısı
 
 ```
@@ -156,6 +167,7 @@ C:\karadelik\
 | Dosya | İçerik |
 |---|---|
 | `usr\karadelik.ini` | Tercihler, portlar, servis seçimleri (Tercihler penceresinden düzenlenir) |
+| `usr\projects.ini` | Proje başına PHP sürümü ve proxy portu (Projeler ekranından düzenlenir) |
 | `usr\profile\<ad>.ini` | Profilin seçili sürümleri |
 | `usr\packages.conf` | Hızlı ekle listesi: `ad=URL`; `*` ile başlayanlar ilk kurulumda önerilir |
 | `usr\sites.conf` | Hızlı uygulama şablonları: `Ad=URL` veya `Ad=komut %s` |
@@ -173,6 +185,7 @@ karadelikdev --terminal <klasör>          :: KaradelikDev ortamıyla terminal
 :: Pencere açmadan (betikler ve CI için)
 karadelikdev --setup [--import-laragon] [--no-vc] [paket,paket…]
 karadelikdev --headless start|stop
+karadelikdev --headless pg-password <parola>   :: PostgreSQL çalışırken postgres parolası (boş = parolasız)
 ```
 
 Kök klasör varsayılan olarak exe'nin bulunduğu klasördür; `KARADELIK_ROOT` ortam değişkeniyle değiştirilebilir.
@@ -181,8 +194,8 @@ Kök klasör varsayılan olarak exe'nin bulunduğu klasördür; `KARADELIK_ROOT`
 
 | Servis | Port | Dinlediği adres |
 |---|---|---|
-| Apache | 80, SSL 443 | tüm arabirimler |
-| Nginx | 8080, SSL 8443 | tüm arabirimler |
+| Apache | 80, SSL 443 | 127.0.0.1 ve ::1 (Tercihler'den yerel ağa açılabilir) |
+| Nginx | 8080, SSL 8443 | 127.0.0.1 ve ::1 (Tercihler'den yerel ağa açılabilir) |
 | MySQL / MariaDB | 3306 | 127.0.0.1 |
 | PostgreSQL | 5432 | localhost |
 | MongoDB | 27017 | 127.0.0.1 |
@@ -190,16 +203,19 @@ Kök klasör varsayılan olarak exe'nin bulunduğu klasördür; `KARADELIK_ROOT`
 | Memcached | 11211 | 127.0.0.1 |
 | Mailpit | SMTP 1025, arayüz 8025 | 127.0.0.1 |
 | PHP Server | 8000 | 127.0.0.1 |
-| php-cgi havuzu | 9001+ | 127.0.0.1 |
+| php-cgi havuzu | 9001+ (proje başına sürümler 9101+) | 127.0.0.1 |
 
 ## Güvenlik notları
 
 KaradelikDev'in varsayılanları **tek kullanıcılı bir geliştirme bilgisayarı** için kolaylığa göre seçilmiştir:
 
-- MySQL/MariaDB `root` kullanıcısı varsayılan olarak **parolasızdır**; PostgreSQL yerel bağlantılara parola sormaz.
-- Apache ve Nginx tüm ağ arabirimlerini dinler. Windows Güvenlik Duvarı sorduğunda, yerel ağdan erişim gerekmiyorsa **izin vermeyin**.
-- Bilgisayarı başka kullanıcılarla paylaşıyorsanız KaradelikDev'i kendi kullanıcı klasörünüze kurun (ör. `%USERPROFILE%\karadelik`) ve veritabanlarına parola koyun. `C:\` altındaki klasörler varsayılan olarak tüm yerel kullanıcılara yazma izni verir.
-- Paylaş (tünel) özelliği projeyi internete açar; `.env` gibi dosyaların web kökünde (`public` dışında) bulunmadığından emin olun.
+- MySQL/MariaDB `root` kullanıcısı varsayılan olarak **parolasızdır**; PostgreSQL yerel bağlantılara parola sormaz (`trust`). İkisine de menüden parola konabilir (MySQL → root parolasını değiştir, PostgreSQL → postgres parolasını değiştir); PostgreSQL'de parola konunca yerel bağlantılar `scram-sha-256` ile parola ister.
+- Bütün servisler yalnız bu bilgisayarı dinler. Apache/Nginx'i telefonla test için yerel ağa açmak isterseniz: Tercihler → Servisler ve Portlar → **Yerel ağdan erişime izin ver**.
+- `.env`, `.git` gibi nokta ile başlayan dosya ve klasörler web sunucusundan sunulmaz (`/.well-known` hariç).
+- phpMyAdmin, Adminer gibi yönetim panelleri yalnız bu bilgisayardan ve `localhost` adresiyle açılır; tünelle paylaşılan bir projenin adresi veya DNS rebinding ile erişilemez.
+- MySQL'in dosya okuma/yazma komutları (`LOAD DATA INFILE`, `SELECT … INTO OUTFILE`) yalnız `data\mysql-files` klasörüyle sınırlıdır.
+- KaradelikDev klasörü başka yerel kullanıcıların yazabileceği bir yerdeyse (ör. `C:\karadelik`, `C:\` izinlerini devralır) açılışta izinleri yalnız sizinle, yöneticilerle ve SYSTEM ile sınırlar.
+- Paylaş (tünel) özelliği projeyi internete açar; gizli bilgileri web kökünde tutmayın.
 - Üretim ortamı olarak kullanmayın.
 
 ## Bilinen sınırlamalar
@@ -239,12 +255,21 @@ src-tauri\src\
 ├─ setup.rs       ilk kurulum sihirbazı
 ├─ menu.rs        native menü           actions.rs   menü eylemleri
 ├─ quickapp.rs  packages.rs  ssl.rs  hosts.rs  terminal.rs  procfile.rs
+├─ projects.rs    proje başına PHP sürümü ve proxy      updater.rs   uygulama içi güncelleme
+├─ acl.rs         kök klasör izinleri
 ├─ tunnel.rs  winenv.rs  scheduler.rs  importer.rs  cli.rs
 src-tauri\resources\tpl\        gömülü şablonlar
 src-tauri\resources\defaults\   ilk açılışta usr\ altına yazılan dosyalar
 ui\                             arayüz (HTML/CSS/JS, derleme adımı yok)
 tests\                          uçtan uca test betikleri
+scripts\release.ps1             sürüm paketi: zip, SHA256SUMS.txt, latest.json
 ```
+
+**Sürüm yayınlama**
+
+1. `src-tauri\Cargo.toml`, `package.json` ve `src-tauri\tauri.conf.json` içindeki sürümü yükseltin, `docs\releases\<sürüm>.md` notunu yazın.
+2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında zip, `SHA256SUMS.txt` ve `latest.json`.
+3. Üç dosyayı `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
 
 ## Lisans
 

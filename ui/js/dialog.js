@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ok.classList.add('danger');
     ok.textContent = T('btn.delete');
   }
+  if (spec.ok) ok.textContent = spec.ok;
 
   const submit = async () => {
     if (spec.kind === 'info' && !spec.action) { invoke('dialog_close'); return; }

@@ -1,5 +1,6 @@
 //! KaradelikDev - Windows için yerel geliştirme ortamı yöneticisi (Laragon tarzı).
 
+mod acl;
 mod actions;
 mod cli;
 mod commands;
@@ -13,6 +14,7 @@ mod packages;
 mod paths;
 mod php;
 mod procfile;
+mod projects;
 mod quickapp;
 mod scheduler;
 mod services;
@@ -22,6 +24,7 @@ mod ssl;
 mod templates;
 mod terminal;
 mod tunnel;
+mod updater;
 mod util;
 mod versions;
 mod vhosts;
@@ -71,6 +74,7 @@ pub fn run() {
             commands::get_state,
             commands::i18n_table,
             commands::run_action,
+            commands::run_action_values,
             commands::show_menu,
             commands::get_settings,
             commands::get_meta,
@@ -88,6 +92,12 @@ pub fn run() {
             commands::setup_run,
             commands::setup_finish,
             commands::open_url,
+            commands::projects_overview,
+            commands::project_set,
+            commands::packages_overview,
+            commands::logs_list,
+            commands::log_tail,
+            commands::log_clear,
         ])
         .on_window_event(|window, event| {
             // Ana pencere kapatılınca tepsiye küçül (Laragon: "Laragon is minimized here.")
@@ -127,6 +137,8 @@ pub fn run() {
 
             let s = kcore::settings();
             let autostarted = start_args.iter().any(|a| a == "--autostart");
+            // Güncelleme sonrası yeniden başlatma: `--updated <servisler>`
+            let resumed = (start_args.get(1).map(String::as_str) == Some("--updated")).then(|| start_args.get(2).cloned().unwrap_or_default());
             if s.first_run {
                 // Laragon yükleyicisinin karşılığı: ilk açılışta kurulum sihirbazı
                 windows::open_setup();
@@ -136,9 +148,13 @@ pub fn run() {
                 }
             }
             scheduler::start();
+            let was_resumed = resumed.is_some();
             std::thread::spawn(move || {
+                acl::check_root();
                 let _ = terminal::write_env_cmd();
-                if s.auto_start && !s.first_run {
+                if let Some(list) = &resumed {
+                    updater::resume_services(list);
+                } else if s.auto_start && !s.first_run {
                     let errs = services::start_all();
                     if !errs.is_empty() {
                         windows::info(&i18n::t("btn.start_all"), &i18n::t("msg.some_failed"), &errs.join("\n\n"));
@@ -146,8 +162,12 @@ pub fn run() {
                 }
                 procfile::autorun();
                 services::broadcast();
+                if s.app_update_check {
+                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    updater::background_check();
+                }
             });
-            if start_args.len() > 1 && !autostarted {
+            if start_args.len() > 1 && !autostarted && !was_resumed {
                 cli::forwarded(&start_args);
             }
             Ok(())

@@ -42,8 +42,19 @@ pub fn ensure_defaults() {
     }
     // Varsayılan Document Root ilk kez oluşturuluyorsa başlangıç sayfasını koy
     let www = PathBuf::from(crate::kcore::settings().document_root);
+    let index = include_str!("../resources/defaults/index.php");
     if !www.exists() && fs::create_dir_all(&www).is_ok() {
-        let _ = fs::write(www.join("index.php"), include_str!("../resources/defaults/index.php"));
+        let _ = fs::write(www.join("index.php"), index);
+    }
+    // 1.0.0'ın başlangıç sayfası (phpinfo'yu Host başlığına bakmadan açıyordu) değiştirilmemişse yenile
+    const OLD_INDEX_SHA256: &[&str] = &["476d0a0060702270c690d74af9c42b12241dcc219743976d8b339dc5b51f0279"];
+    let page = www.join("index.php");
+    if let Ok(cur) = fs::read_to_string(&page) {
+        use sha2::{Digest, Sha256};
+        let h = hex::encode(Sha256::digest(cur.replace('\r', "").as_bytes()));
+        if OLD_INDEX_SHA256.contains(&h.as_str()) {
+            let _ = fs::write(&page, index);
+        }
     }
 }
 

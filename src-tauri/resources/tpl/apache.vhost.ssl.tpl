@@ -6,7 +6,7 @@
         AllowOverride All
         Require all granted
     </Directory>
-</VirtualHost>
+<<PHP_HANDLER>></VirtualHost>
 
 <VirtualHost *:<<SSL_PORT>>>
     DocumentRoot "<<PROJECT_DIR>>"
@@ -16,7 +16,7 @@
         AllowOverride All
         Require all granted
     </Directory>
-    SSLEngine on
+<<PHP_HANDLER>>    SSLEngine on
     SSLCertificateFile      "<<SSL_DIR>>/<<HOSTNAME>>.crt"
     SSLCertificateKeyFile   "<<SSL_DIR>>/<<HOSTNAME>>.key"
 </VirtualHost>

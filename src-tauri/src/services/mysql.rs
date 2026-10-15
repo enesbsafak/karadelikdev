@@ -51,6 +51,9 @@ pub fn write_ini() -> Result<PathBuf> {
     let exe = mysqld().ok_or_else(|| anyhow!(tf("msg.not_installed", &["MySQL"])))?;
     let basedir = exe.parent().and_then(|p| p.parent()).unwrap().to_path_buf();
     let ini = ini_path().unwrap();
+    // LOAD DATA INFILE / SELECT ... INTO OUTFILE yalnız bu klasörde; boş değer tüm diske erişim verir
+    let files = PathBuf::from(settings().data_dir).join("mysql-files");
+    std::fs::create_dir_all(&files)?;
     let content = crate::templates::render_named(
         "my.ini.tpl",
         &[
@@ -58,6 +61,7 @@ pub fn write_ini() -> Result<PathBuf> {
             ("BASEDIR", fwd(&basedir)),
             ("DATADIR", fwd(&data_dir().unwrap())),
             ("LOG_DIR", fwd(&paths().logs())),
+            ("SECURE_FILE_PRIV", fwd(&files)),
         ],
     );
     util::write_if_changed(&ini, &content)?;
@@ -133,6 +137,14 @@ pub fn stop() -> Result<()> {
             crate::kcore::log("Graceful shutdown failed - zorla kapatılıyor");
             if let Some(exe) = mysqld() {
                 kill_by_exe(&exe);
+            }
+        }
+        // Port kapandıktan sonra mysqld veri dosyalarını bir süre daha tutar; hemen yeniden başlatılırsa
+        // "ibdata1 must be writable" hatası verir
+        if let Some(exe) = mysqld() {
+            let started = std::time::Instant::now();
+            while started.elapsed() < Duration::from_secs(10) && !util::pids_by_exe(&exe, &paths().root).is_empty() {
+                std::thread::sleep(Duration::from_millis(200));
             }
         }
     }

@@ -1,6 +1,6 @@
 # Otomatik üretildi. Apache > SSL menüsünden açılıp kapatılır.
 LoadModule ssl_module modules/mod_ssl.so
-Listen <<SSL_PORT>>
+<<SSL_LISTEN>>
 SSLCipherSuite HIGH:!aNULL:!MD5:!RC4:!3DES:!CAMELLIA
 SSLProxyCipherSuite HIGH:!aNULL:!MD5:!RC4:!3DES:!CAMELLIA
 SSLHonorCipherOrder on

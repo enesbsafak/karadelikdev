@@ -16,7 +16,7 @@ read_buffer_size=1M
 read_rnd_buffer_size=4M
 myisam_sort_buffer_size=64M
 thread_cache_size=8
-secure-file-priv=""
+secure-file-priv="<<SECURE_FILE_PRIV>>"
 explicit_defaults_for_timestamp=1
 character-set-server=utf8mb4
 

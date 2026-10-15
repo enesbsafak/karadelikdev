@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Paketler</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-esc-close="1">
+<div class="page">
+  <nav class="tabs">
+    <button class="tab active" data-tab="catalog" data-i18n="packages.catalog">Katalog</button>
+    <button class="tab" data-tab="installed" data-i18n="packages.installed">Kurulu sürümler</button>
+  </nav>
+
+  <section class="content" id="tab-catalog">
+    <div class="inline-form">
+      <input class="field grow" id="filter" autocomplete="off" spellcheck="false" data-i18n-ph="packages.filter">
+      <button class="btn" id="editConf">packages.conf</button>
+    </div>
+    <div class="progress wide hidden" id="progress"><div></div></div>
+    <table class="grid"><thead><tr>
+      <th data-i18n="packages.name">Paket</th><th data-i18n="packages.source">Kaynak</th><th></th>
+    </tr></thead><tbody id="pkgRows"></tbody></table>
+  </section>
+
+  <section class="content hidden" id="tab-installed">
+    <table class="grid"><thead><tr>
+      <th data-i18n="packages.category">Kategori</th><th data-i18n="packages.version">Sürüm</th><th></th>
+    </tr></thead><tbody id="verRows"></tbody></table>
+    <div class="hint" style="margin:14px 0 0" data-i18n="packages.versions_hint"></div>
+  </section>
+
+  <div class="footer">
+    <span class="note" id="msg"></span>
+    <button class="btn" id="refresh" data-i18n="db.refresh">Yenile</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/packages.js"></script>
+</body>
+</html>

@@ -71,6 +71,12 @@ function render() {
   const lg = state.laragon && state.empty;
   $('laragonNotice').classList.toggle('hidden', !lg);
   if (lg) $('laragonText').textContent = TF('ui.import_laragon', state.laragon);
+  renderUpdate();
+}
+
+function renderUpdate() {
+  $('updateNotice').classList.toggle('hidden', !state.update);
+  if (state.update) $('updateText').textContent = TF('ui.update_available', state.update);
 }
 
 function setStatus(msg, isError = false) {
@@ -108,6 +114,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('hostsBtn').addEventListener('click', () => act('hosts_edit'));
   $('helpBtn').addEventListener('click', () => act('help'));
   $('importBtn').addEventListener('click', () => act('import_laragon'));
+  $('updateBtn').addEventListener('click', () => act('app_update'));
+  $('manageProjects').addEventListener('click', (e) => { e.preventDefault(); act('projects'); });
   $('minBtn').addEventListener('click', () => currentWindow().minimize());
   $('closeBtn').addEventListener('click', () => currentWindow().close());
   $('startBtn').addEventListener('click', () => {
@@ -144,6 +152,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     state.laragon = s.laragon;
     state.empty = s.empty;
     state.document_root = s.document_root;
+    state.update = s.update;
+    renderUpdate();
     renderProjects(s.projects, s.document_root);
     $('profileChip').textContent = `[${s.profile}]`;
     const lg = s.laragon && s.empty;

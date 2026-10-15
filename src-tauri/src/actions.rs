@@ -71,8 +71,52 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
              Ctrl+Alt+T  Terminal",
         ),
         "exit" => exit(),
+        "app_update" => bg("menu.app_update_check", || {
+            status(&t("msg.app_update_checking"));
+            match crate::updater::check()? {
+                Some(l) => windows::open_dialog(windows::DialogSpec {
+                    kind: "confirm".into(),
+                    title: format!("KaradelikDev {}", l.version),
+                    message: tf("msg.app_update_confirm", &[crate::updater::current_version(), &l.version]),
+                    text: l.notes.trim().to_string(),
+                    action: "app_update_do".into(),
+                    ok: t("btn.update"),
+                    ..Default::default()
+                }),
+                None => notify(&tf("msg.app_up_to_date", &[crate::updater::current_version()])),
+            }
+            Ok(())
+        }),
+        "app_update_do" => bg("menu.app_update_check", || {
+            let l = match crate::updater::available() {
+                Some(l) => l,
+                None => crate::updater::check()?.ok_or_else(|| anyhow!(tf("msg.app_up_to_date", &[crate::updater::current_version()])))?,
+            };
+            crate::updater::install(&l)?;
+            status(&t("msg.app_restarting"));
+            crate::updater::restart(true)
+        }),
+        "app_rollback" => windows::confirm(&t("menu.app_rollback"), &t("msg.app_rollback_confirm"), "app_rollback_do", false),
+        "app_rollback_do" => bg("menu.app_rollback", || {
+            crate::updater::rollback()?;
+            status(&t("msg.app_restarting"));
+            crate::updater::restart(false)
+        }),
         "web" | "localhost" => open_url(&format!("{}/", crate::vhosts::localhost_url())),
         "db" | "db_manager" => windows::open_databases(),
+        "projects" => windows::open_page("projects", "projects.title", 860.0, 560.0),
+        "packages" => windows::open_page("packages", "packages.title", 820.0, 600.0),
+        "logs" => windows::open_page("logs", "logs.title", 920.0, 600.0),
+        "projdir" => {
+            if let Some(pr) = crate::vhosts::projects().into_iter().find(|x| x.name == a1) {
+                open_path(&pr.dir);
+            }
+        }
+        "projterm" => {
+            if let Some(pr) = crate::vhosts::projects().into_iter().find(|x| x.name == a1) {
+                crate::terminal::open(&pr.dir, None)?;
+            }
+        }
         "db_tool" => open_database_tool(),
         "terminal" => crate::terminal::open(Path::new(&s.document_root), None)?,
         "root" => open_path(Path::new(&s.document_root)),
@@ -306,6 +350,24 @@ pub fn dispatch_with(id: &str, values: &[String]) -> Result<()> {
             Ok(())
         }),
         "mysql" => mysql_action(&a1, &v0)?,
+        "pg" => match a1.as_str() {
+            "chpw" => windows::input(&t("menu.pg_password"), &t("label.new_password_or_empty"), "pg:chpw_do", "", true),
+            "chpw_do" => {
+                let pw = v0.clone();
+                bg("menu.pg_password", move || {
+                    services::others::pg_set_password(&pw)?;
+                    let _ = crate::terminal::write_env_cmd();
+                    notify(&t(if pw.is_empty() { "msg.pg_pw_removed" } else { "msg.pg_pw_changed" }));
+                    Ok(())
+                });
+            }
+            "getpw" => {
+                let pw = services::others::pg_password();
+                copy(&pw);
+                notify(&t(if pw.is_empty() { "msg.pg_pw_empty" } else { "msg.pg_pw_copied" }));
+            }
+            _ => {}
+        },
         "dbcall" => {
             let msg = crate::mysqlops::call(&a1, values)?;
             notify(&msg);

@@ -27,6 +27,8 @@ pub struct AppState {
     empty: bool,
     laragon: Option<String>,
     sharing: Option<(String, String)>,
+    /// Yeni KaradelikDev sürümü (varsa).
+    update: Option<String>,
 }
 
 #[tauri::command]
@@ -48,6 +50,7 @@ pub fn get_state() -> AppState {
         empty,
         laragon: crate::importer::find_laragon().map(|p| p.display().to_string()),
         sharing: crate::tunnel::current(),
+        update: crate::updater::available().map(|l| l.version),
     }
 }
 
@@ -60,6 +63,16 @@ pub fn i18n_table() -> HashMap<String, String> {
 pub fn run_action(id: String) {
     // Senkron komutlar ana iş parçacığında çalışır; eylemler onu meşgul etmesin
     std::thread::spawn(move || crate::actions::dispatch(&id));
+}
+
+/// Değer alan eylemler (ör. `quick_create:<şablon>` + proje adı) için; diyalog penceresi açmadan.
+#[tauri::command]
+pub fn run_action_values(id: String, values: Vec<String>) {
+    std::thread::spawn(move || {
+        if let Err(e) = crate::actions::dispatch_with(&id, &values) {
+            kcore::error(&id, &e);
+        }
+    });
 }
 
 /// "Menü" düğmesinin altında native popup menüyü açar.
@@ -292,4 +305,142 @@ pub fn copy_text(text: String) {
 #[tauri::command]
 pub fn open_url(url: String) {
     crate::actions::open_url(&url);
+}
+
+/// Projeler ekranı: projeler, proje başına ayarlar, seçilebilir PHP sürümleri, hızlı uygulama şablonları.
+#[tauri::command]
+pub fn projects_overview() -> serde_json::Value {
+    let cfgs = crate::projects::all();
+    let current_php = crate::php::version_name().unwrap_or_default();
+    let projects: Vec<serde_json::Value> = crate::vhosts::projects()
+        .into_iter()
+        .map(|p| {
+            let cfg = cfgs.get(&p.name.to_lowercase()).cloned().unwrap_or_default();
+            serde_json::json!({
+                "name": p.name,
+                "host": p.host,
+                "url": crate::vhosts::project_url(&p),
+                "dir": p.dir.display().to_string(),
+                "web_root": p.web_root.display().to_string(),
+                "kind": crate::projects::kind(&p.dir),
+                "php": cfg.php,
+                "proxy": cfg.proxy,
+            })
+        })
+        .collect();
+    let php_versions: Vec<serde_json::Value> = crate::versions::installed("php")
+        .into_iter()
+        .map(|v| serde_json::json!({ "name": v, "cgi": crate::projects::has_cgi(&v), "current": v == current_php }))
+        .collect();
+    serde_json::json!({
+        "projects": projects,
+        "php_versions": php_versions,
+        "current_php": current_php,
+        "templates": crate::quickapp::manifest().templates.into_iter().map(|t| t.name).collect::<Vec<_>>(),
+        "document_root": settings().document_root,
+        "invalid": crate::vhosts::invalid_folders(),
+    })
+}
+
+/// Proje başına PHP sürümü / proxy portu; vhost'lar yeniden üretilir ve web sunucuları yeniden yüklenir.
+#[tauri::command]
+pub async fn project_set(name: String, php: String, proxy: u16) -> Result<String, String> {
+    let r = (|| -> anyhow::Result<String> {
+        if !crate::vhosts::projects().iter().any(|p| p.name == name) {
+            anyhow::bail!("{name}?");
+        }
+        crate::projects::set(&name, &crate::projects::ProjectCfg { php, proxy })?;
+        crate::vhosts::sync_and_reload()?;
+        Ok(crate::i18n::tf("msg.project_saved", &[&name]))
+    })();
+    services::broadcast();
+    r.map_err(|e| format!("{e:#}"))
+}
+
+/// Paketler ekranı: packages.conf listesi ve sürümlü kategorilerde kurulu sürümler.
+#[tauri::command]
+pub fn packages_overview() -> serde_json::Value {
+    let versions: Vec<serde_json::Value> = crate::versions::VERSIONED
+        .iter()
+        .filter_map(|(cat, title)| {
+            let installed = crate::versions::installed(cat);
+            (!installed.is_empty()).then(|| {
+                serde_json::json!({
+                    "cat": cat,
+                    "title": title,
+                    "installed": installed,
+                    "current": crate::versions::current(cat),
+                    "dir": kcore::paths().bin().join(cat).display().to_string(),
+                })
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "packages": crate::packages::list(),
+        "versions": versions,
+        "conf": crate::packages::conf_path().display().to_string(),
+    })
+}
+
+/// logs klasöründeki dosya adı; klasör dışına çıkan adlar reddedilir.
+fn log_file(name: &str) -> Result<std::path::PathBuf, String> {
+    if name.is_empty() || name.contains(['/', '\\', ':']) || name.contains("..") {
+        return Err("?".into());
+    }
+    Ok(kcore::paths().logs().join(name))
+}
+
+#[derive(Serialize)]
+pub struct LogInfo {
+    name: String,
+    size: u64,
+    modified: i64,
+}
+
+#[tauri::command]
+pub fn logs_list() -> Vec<LogInfo> {
+    let mut v: Vec<LogInfo> = std::fs::read_dir(kcore::paths().logs())
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| {
+                    let md = e.metadata().ok()?;
+                    let modified = md.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+                    Some(LogInfo { name: e.file_name().to_string_lossy().to_string(), size: md.len(), modified })
+                })
+                .filter(|l| !l.name.ends_with(".pid") && !l.name.starts_with("ssl_scache"))
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort_by(|a, b| b.modified.cmp(&a.modified));
+    v
+}
+
+/// Logun son `max_bytes` baytı (varsayılan 256 KB).
+#[tauri::command]
+pub fn log_tail(name: String, max_bytes: Option<u64>) -> Result<String, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let path = log_file(&name)?;
+    let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let max = max_bytes.unwrap_or(256 * 1024).min(4 * 1024 * 1024);
+    let start = len.saturating_sub(max);
+    f.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    let mut text = String::from_utf8_lossy(&buf).to_string();
+    if start > 0 {
+        // Yarım kalan ilk satırı at
+        if let Some(i) = text.find('\n') {
+            text = text[i + 1..].to_string();
+        }
+    }
+    Ok(text)
+}
+
+/// Logu boşaltır (dosyayı açık tutan servis yazmaya devam edebilir).
+#[tauri::command]
+pub fn log_clear(name: String) -> Result<(), String> {
+    let path = log_file(&name)?;
+    std::fs::OpenOptions::new().write(true).open(&path).and_then(|f| f.set_len(0)).map_err(|e| e.to_string())
 }

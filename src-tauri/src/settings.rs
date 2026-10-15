@@ -32,6 +32,9 @@ pub struct Settings {
     pub backup_interval: u32,
     pub backup_keep: u32,
     pub auto_update: bool,
+    /// Yeni KaradelikDev sürümlerini denetle (GitHub, günde bir).
+    #[serde(default = "yes")]
+    pub app_update_check: bool,
     pub profile: String,
     pub terminal: String,
     pub editor: String,
@@ -100,6 +103,7 @@ impl Settings {
             backup_interval: 8,
             backup_keep: 5,
             auto_update: false,
+            app_update_check: true,
             profile: "default".into(),
             terminal: "auto".into(),
             editor: String::new(),
@@ -141,6 +145,7 @@ impl Settings {
         if let Some(v) = get(p, "BackupInterval").and_then(|v| v.parse().ok()) { s.backup_interval = v; }
         if let Some(v) = get(p, "BackupKeep").and_then(|v| v.parse().ok()) { s.backup_keep = v; }
         s.auto_update = b(get(p, "AutoUpdate"), s.auto_update);
+        s.app_update_check = b(get(p, "CheckAppUpdate"), s.app_update_check);
         if let Some(v) = get(p, "Profile").filter(|v| !v.is_empty()) { s.profile = v; }
         if let Some(v) = get(p, "Terminal") { s.terminal = v; }
         if let Some(v) = get(p, "Editor") { s.editor = v; }
@@ -196,6 +201,7 @@ impl Settings {
             .set("BackupInterval", self.backup_interval.to_string())
             .set("BackupKeep", self.backup_keep.to_string())
             .set("AutoUpdate", bs(self.auto_update))
+            .set("CheckAppUpdate", bs(self.app_update_check))
             .set("Profile", &self.profile)
             .set("Terminal", &self.terminal)
             .set("Editor", &self.editor)

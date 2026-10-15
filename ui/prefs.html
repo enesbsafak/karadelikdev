@@ -44,6 +44,9 @@
     <hr class="sep">
     <div class="row"><label class="lbl" data-i18n="prefs.php_workers">php-cgi</label><input class="field small" type="number" min="1" max="32" id="php_upstream"></div>
     <div class="row"><label class="lbl" data-i18n="prefs.mailpit_ui">Mailpit UI</label><input class="field small" type="number" id="mailpit_ui_port"></div>
+    <hr class="sep">
+    <label class="check"><input type="checkbox" id="lan_access"><span data-i18n="prefs.lan_access"></span></label>
+    <div class="hint" data-i18n="prefs.lan_access_hint"></div>
   </section>
 
   <section class="content hidden" id="tab-advanced">
@@ -53,6 +56,7 @@
       <label data-i18n="prefs.keep" style="color:var(--muted)">Saklanacak</label><input class="field small" type="number" min="1" id="backup_keep">
     </div>
     <label class="check"><input type="checkbox" id="auto_update"><span data-i18n="prefs.auto_update"></span></label>
+    <label class="check"><input type="checkbox" id="app_update_check"><span data-i18n="prefs.app_update_check"></span></label>
     <hr class="sep">
     <div class="row">
       <label class="lbl" data-i18n="prefs.terminal">Terminal</label>

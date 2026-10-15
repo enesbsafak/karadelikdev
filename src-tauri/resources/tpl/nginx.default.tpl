@@ -1,5 +1,5 @@
 server {
-    listen <<PORT>> default_server;
+<<LISTEN>>
 <<SSL_LISTEN>>
     server_name localhost;
     root "<<DOC_ROOT>>";
@@ -12,6 +12,9 @@ server {
         autoindex on;
     }
 
+    # .env, .git gibi gizli dosya ve klasörler sunulmaz (/.well-known hariç)
+    location ~ /\.(?!well-known) { deny all; }
+
     location ~ \.php$ {
         include "<<KD_ROOT>>/etc/nginx/fastcgi-php.conf";
         fastcgi_pass php_upstream;
@@ -20,5 +23,4 @@ server {
     charset utf-8;
     location = /favicon.ico { access_log off; log_not_found off; }
     location = /robots.txt  { access_log off; log_not_found off; }
-    location ~ /\.ht { deny all; }
 }

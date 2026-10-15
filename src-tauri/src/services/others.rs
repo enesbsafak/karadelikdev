@@ -62,6 +62,71 @@ pub fn postgres_start() -> Result<()> {
     wait_or_fail(Svc::Postgresql, port, 10, Some(pg_log()))
 }
 
+/// Veri dizini anahtarı (ör. "postgresql-18.2"); parola bu anahtarla saklanır.
+pub fn pg_key() -> Option<String> {
+    versions::current("postgresql").map(|v| versions::major_minor_key(&v, "postgresql"))
+}
+
+/// Seçili sürümün veri dizinindeki `postgres` kullanıcısının parolası (boş = trust, parolasız).
+pub fn pg_password() -> String {
+    pg_key().and_then(|k| settings().pg_passwords.get(&k).cloned()).unwrap_or_default()
+}
+
+/// pg_hba.conf'taki tüm `local`/`host*` kurallarının kimlik doğrulama yöntemini değiştirir.
+pub fn set_hba_method(content: &str, method: &str) -> String {
+    const METHODS: &[&str] = &["trust", "md5", "scram-sha-256", "password"];
+    let mut out = String::with_capacity(content.len());
+    for line in content.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\r', '\n']);
+        let first = body.split_whitespace().next().unwrap_or("");
+        let last = body.split_whitespace().last().unwrap_or("");
+        if (first == "local" || first.starts_with("host")) && METHODS.contains(&last) {
+            let cut = body.rfind(last).unwrap();
+            out.push_str(&body[..cut]);
+            out.push_str(method);
+            out.push_str(&line[body.len()..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
+/// `postgres` parolasını değiştirir. Boş parola: kimlik doğrulama `trust` (varsayılan, parolasız MySQL root ile aynı);
+/// parola verilirse yerel bağlantılar `scram-sha-256` ile parola ister.
+pub fn pg_set_password(new: &str) -> Result<()> {
+    let port = settings().svc("postgresql").port;
+    if !util::port_open(port) {
+        bail!(tf("msg.start_first", &["PostgreSQL"]));
+    }
+    let bin = pg_bin().ok_or_else(|| anyhow!(tf("msg.not_installed", &["PostgreSQL"])))?;
+    let data = pg_data().unwrap();
+    let lit = if new.is_empty() { "NULL".to_string() } else { format!("'{}'", new.replace('\'', "''")) };
+    let mut c = hidden(bin.join("psql.exe"));
+    c.args(["-h", "127.0.0.1", "-p", &port.to_string(), "-U", "postgres", "-d", "postgres", "-w", "-v", "ON_ERROR_STOP=1"])
+        .arg("-c")
+        .arg(format!("ALTER USER postgres PASSWORD {lit}"))
+        .env("PGPASSWORD", pg_password());
+    let (code, out) = util::run_capture(c)?;
+    if code != 0 {
+        bail!("psql: {}", out.trim());
+    }
+    let hba = data.join("pg_hba.conf");
+    let content = std::fs::read_to_string(&hba)?;
+    std::fs::write(&hba, set_hba_method(&content, if new.is_empty() { "trust" } else { "scram-sha-256" }))?;
+    let mut c = hidden(bin.join("pg_ctl.exe"));
+    c.arg("-D").arg(&data).arg("reload");
+    let (code, out) = util::run_logged(c, &paths().logs().join("pg_ctl.log"), Duration::from_secs(30))?;
+    if code != 0 {
+        bail!("pg_ctl reload: {}", out.trim());
+    }
+    let key = pg_key().unwrap_or_default();
+    crate::kcore::update_settings(|s| {
+        s.pg_passwords.insert(key, new.to_string());
+    });
+    Ok(())
+}
+
 pub fn postgres_stop() -> Result<()> {
     if let (Some(bin), Some(data)) = (pg_bin(), pg_data()) {
         let mut c = hidden(bin.join("pg_ctl.exe"));
@@ -205,4 +270,19 @@ pub fn phpserver_start() -> Result<()> {
     let child = util::spawn_bg(&php, &args, Some(std::path::Path::new(&root)), &service_env(&[]), Some(&paths().logs().join("php-server.log")))?;
     track("phpserver", child);
     wait_or_fail(Svc::PhpServer, port, 5, Some(paths().logs().join("php-server.log")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::set_hba_method;
+
+    #[test]
+    fn hba_methods() {
+        let c = "# TYPE  DATABASE USER ADDRESS METHOD\r\nlocal   all  all                trust\r\nhost    all  all  127.0.0.1/32  trust\r\nhost    replication all ::1/128 trust\r\n# host all all 0.0.0.0/0 trust\r\n";
+        let s = set_hba_method(c, "scram-sha-256");
+        assert_eq!(s.matches("scram-sha-256").count(), 3);
+        assert!(s.contains("# host all all 0.0.0.0/0 trust\r\n"));
+        assert!(s.contains("host    all  all  127.0.0.1/32  scram-sha-256\r\n"));
+        assert_eq!(set_hba_method(&s, "trust"), c);
+    }
 }

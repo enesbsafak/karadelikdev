@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Loglar</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-esc-close="1">
+<div class="page logs-page">
+  <aside class="log-list" id="list"></aside>
+  <section class="log-view">
+    <div class="inline-form">
+      <strong id="current" class="ellipsis"></strong>
+      <span class="spacer"></span>
+      <input class="field" id="find" autocomplete="off" spellcheck="false" data-i18n-ph="logs.filter" style="width:180px">
+      <label class="check" style="margin:0"><input type="checkbox" id="follow" checked><span data-i18n="logs.follow">Takip et</span></label>
+      <button class="btn" id="edit" data-i18n="logs.open">Editörde aç</button>
+      <button class="btn danger" id="clear" data-i18n="logs.clear">Temizle</button>
+    </div>
+    <pre class="log grow-log" id="text"></pre>
+    <div class="hint-line" id="info"></div>
+  </section>
+</div>
+<script src="js/common.js"></script>
+<script src="js/logs.js"></script>
+</body>
+</html>

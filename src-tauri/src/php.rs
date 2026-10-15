@@ -77,10 +77,25 @@ pub fn get_value(content: &str, key: &str) -> Option<String> {
     re.captures(content).map(|c| c[1].trim().to_string())
 }
 
-/// php.ini'yi oluşturur (yoksa) ve yola bağlı ayarları her seferinde günceller.
+/// Kurulu bir PHP sürümünün klasörü (bin\php\<sürüm>).
+pub fn dir_for(ver: &str) -> PathBuf {
+    paths().bin().join("php").join(ver)
+}
+
+/// Seçili sürümün php.ini'si.
 pub fn ensure_ini() -> Result<PathBuf> {
-    let pdir = dir().ok_or_else(|| anyhow!(crate::i18n::tf("msg.not_installed", &["PHP"])))?;
-    let idir = ini_dir().unwrap();
+    let ver = version_name().ok_or_else(|| anyhow!(crate::i18n::tf("msg.not_installed", &["PHP"])))?;
+    ensure_ini_for(&ver)
+}
+
+/// php.ini'yi oluşturur (yoksa) ve yola bağlı ayarları her seferinde günceller. Proje başına PHP sürümünde
+/// profildeki sürümden farklı sürümler için de kullanılır.
+pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
+    let pdir = dir_for(ver);
+    if !pdir.is_dir() {
+        return Err(anyhow!(crate::i18n::tf("msg.not_installed", &[ver])));
+    }
+    let idir = ini_dir_for(ver);
     fs::create_dir_all(&idir)?;
     let ini = idir.join("php.ini");
     let p = paths();
@@ -137,9 +152,7 @@ pub fn ensure_ini() -> Result<PathBuf> {
 
 /// php.ini'yi LF satır sonlarıyla okur (Laragon'un dosyaları CRLF; regex'ler satır sonuna bakar).
 pub fn read_ini(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_default().replace("
-", "
-")
+    fs::read_to_string(path).unwrap_or_default().replace("\r\n", "\n")
 }
 
 fn ext_line_re(name: &str) -> Regex {
@@ -312,6 +325,16 @@ pub fn write_apache_php_conf() -> Result<bool> {
             (0..n).map(|i| format!("    BalancerMember \"fcgi://127.0.0.1:{}\"", 9001 + i)).collect();
         crate::templates::render_named("apache.php.fcgi.tpl", &[("BALANCER_MEMBERS", members.join("\n"))])
     };
+    // Proje başına seçilen diğer PHP sürümleri: her biri kendi php-cgi'sine giden bir balancer (vhost'lar kullanır).
+    // Doğrudan "proxy:fcgi://host:port" Windows yollarıyla (C:/...) birleşince geçersiz URL üretir.
+    let pools = crate::projects::php_pools();
+    let mut content = content;
+    if !pools.is_empty() {
+        content.push_str("\n# Proje başına PHP sürümleri (Projeler ekranı)\nProxyFCGIBackendType GENERIC\n");
+        for (ver, port) in pools {
+            content.push_str(&format!("# {ver}\n<Proxy \"balancer://kdphp{port}\">\n    BalancerMember \"fcgi://127.0.0.1:{port}\"\n</Proxy>\n"));
+        }
+    }
     crate::util::write_if_changed(&conf, &content)?;
     Ok(uses_fcgi)
 }

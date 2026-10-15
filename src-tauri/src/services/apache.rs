@@ -40,7 +40,10 @@ pub fn write_conf() -> Result<bool> {
     let ssl_conf = a2.join("ssl.conf");
     let default_conf = a2.join("sites-enabled").join("00-default.conf");
     let doc_root = fwd(std::path::Path::new(&s.document_root));
+    let listen = |port: u16| super::listen_addrs(port).iter().map(|a| format!("Listen {a}")).collect::<Vec<_>>().join("\n");
     let common = vec![
+        ("LISTEN", listen(cfg.port)),
+        ("SSL_LISTEN", listen(cfg.ssl_port)),
         ("KD_ROOT", fwd(&p.root)),
         ("DOC_ROOT", doc_root.clone()),
         ("PORT", cfg.port.to_string()),
@@ -90,6 +93,7 @@ pub fn start() -> Result<()> {
     if fcgi {
         super::phpcgi::ensure()?;
     }
+    super::phpcgi::ensure_extra()?;
     test_conf()?;
     let exe = exe().unwrap();
     let args = vec!["-f".to_string(), conf_path().display().to_string()];

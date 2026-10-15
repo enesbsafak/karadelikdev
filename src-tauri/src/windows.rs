@@ -55,6 +55,7 @@ pub fn open_dialog(spec: DialogSpec) {
         "info" if !spec.svg.is_empty() => 470.0,
         "info" => 420.0,
         "input" => 170.0 + 64.0 * spec.fields.len() as f64,
+        "confirm" if !spec.text.is_empty() => 440.0,
         _ => 210.0,
     };
     let title = spec.title.clone();
@@ -146,6 +147,26 @@ pub fn open_databases() {
             .title(crate::i18n::t("db.title"))
             .inner_size(780.0, 600.0)
             .min_inner_size(640.0, 480.0)
+            .center()
+            .build();
+    });
+}
+
+/// Projeler / Paketler / Loglar gibi yeniden boyutlandırılabilir araç pencereleri (`<etiket>.html`).
+pub fn open_page(label: &'static str, title_key: &'static str, width: f64, height: f64) {
+    let Some(app) = app() else { return };
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+        return;
+    }
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let _ = WebviewWindowBuilder::new(&app2, label, WebviewUrl::App(format!("{label}.html").into()))
+            .title(crate::i18n::t(title_key))
+            .inner_size(width, height)
+            .min_inner_size(600.0, 420.0)
             .center()
             .build();
     });

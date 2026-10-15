@@ -1,7 +1,7 @@
 # KaradelikDev tarafından üretildi. Kalıcı değişiklik için: usr\tpl\httpd.conf.tpl
 Define KD_ROOT "<<KD_ROOT>>"
 ServerRoot "<<SERVER_ROOT>>"
-Listen <<PORT>>
+<<LISTEN>>
 
 LoadModule access_compat_module modules/mod_access_compat.so
 LoadModule actions_module modules/mod_actions.so
@@ -57,6 +57,10 @@ DirectoryIndex index.php index.html index.htm
 <Files ".ht*">
     Require all denied
 </Files>
+# .env, .git gibi gizli dosya ve klasörler sunulmaz (/.well-known hariç)
+<LocationMatch "/\.(?!well-known(/|$))">
+    Require all denied
+</LocationMatch>
 
 ErrorLog "<<LOG_DIR>>/apache_error.log"
 LogLevel warn

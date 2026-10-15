@@ -1,6 +1,8 @@
 <?php
-// KaradelikDev başlangıç sayfası. phpinfo yalnızca localhost'tan görüntülenebilir.
-$isLocal = in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true);
+// KaradelikDev başlangıç sayfası. phpinfo yalnızca bu bilgisayardan, localhost adresiyle görüntülenebilir
+// (tünel veya DNS rebinding ile gelen istekler de 127.0.0.1'den gelir; Host başlığı ayırt eder).
+$isLocal = in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)
+    && preg_match('/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i', $_SERVER['HTTP_HOST'] ?? '');
 if (isset($_GET['q'])) {
     if ($_GET['q'] === 'info' && $isLocal) {
         phpinfo();

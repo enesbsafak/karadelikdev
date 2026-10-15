@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Projeler</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body data-esc-close="1">
+<div class="page">
+  <div class="conn">
+    <form class="inline-form" id="newForm">
+      <select class="field" id="tpl"></select>
+      <input class="field grow" id="newName" autocomplete="off" spellcheck="false" data-i18n-ph="label.project_name">
+      <button class="btn primary" type="submit" data-i18n="projects.create">Oluştur</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="openRoot" data-i18n="btn.root">Kök</button>
+    </form>
+    <div class="hint-line" id="docroot"></div>
+  </div>
+
+  <section class="content">
+    <div class="notice hidden" id="invalid"></div>
+    <table class="grid"><thead><tr>
+      <th data-i18n="projects.project">Proje</th>
+      <th data-i18n="projects.kind">Tür</th>
+      <th data-i18n="projects.php">PHP</th>
+      <th data-i18n="projects.proxy">Proxy portu</th>
+      <th></th>
+    </tr></thead><tbody id="rows"></tbody></table>
+    <div class="empty-hint hidden" id="none" data-i18n="ui.no_projects"></div>
+    <div class="hint" style="margin:14px 0 0" data-i18n="projects.hint"></div>
+  </section>
+
+  <div class="footer">
+    <span class="note" id="msg"></span>
+    <button class="btn" id="refresh" data-i18n="db.refresh">Yenile</button>
+  </div>
+</div>
+<script src="js/common.js"></script>
+<script src="js/projects.js"></script>
+</body>
+</html>

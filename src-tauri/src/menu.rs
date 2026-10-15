@@ -131,6 +131,9 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
         vec![
             item("web", t("btn.web")),
             item("db", t("btn.database")),
+            item("projects", t("projects.title")),
+            item("packages", t("packages.title")),
+            item("logs", t("logs.title")),
             item("terminal", format!("{}  (Ctrl+Alt+T)", t("btn.terminal"))),
             item("root", t("btn.root")),
             Node::Sep,
@@ -143,7 +146,15 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
             Node::Sep,
             item(format!("edit:{}", p.log_file().display()), "karadelik.log"),
             open(&p.logs(), "dir: logs"),
-        ],
+            Node::Sep,
+            match crate::updater::available() {
+                Some(l) => item("app_update", crate::i18n::tf("menu.app_update_to", &[&l.version])),
+                None => item("app_update", t("menu.app_update_check")),
+            },
+        ]
+        .into_iter()
+        .chain(crate::updater::rollback_available().then(|| item("app_rollback", t("menu.app_rollback"))))
+        .collect(),
     ));
 
     // ---- www
@@ -315,7 +326,7 @@ fn tree(st: &[SvcStatus]) -> Vec<Node> {
 
     // ---- PostgreSQL
     let mut pg = svc_head(st, Svc::Postgresql);
-    pg.push(Node::Sep);
+    pg.extend([Node::Sep, item("pg:chpw", t("menu.pg_password")), item("pg:getpw", t("menu.pg_get_password")), Node::Sep]);
     if let Some(d) = services::others::pg_data() {
         pg.push(item(format!("edit:{}", d.join("postgresql.conf").display()), "postgresql.conf"));
         pg.push(open(&d, "dir: data"));

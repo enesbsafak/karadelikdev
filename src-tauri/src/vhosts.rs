@@ -115,6 +115,8 @@ pub fn sync() -> Result<SyncReport> {
         crate::ssl::ensure_ca()?;
     }
 
+    let cfgs = crate::projects::all();
+    let pools = crate::projects::php_pools();
     let mut wanted: Vec<String> = Vec::new();
     for pr in &projects {
         let file = format!("auto.{}.conf", pr.host);
@@ -122,17 +124,36 @@ pub fn sync() -> Result<SyncReport> {
         if any_ssl && crate::ssl::ensure_host_cert(&pr.host)? {
             rep.changed = true;
         }
+        let cfg = cfgs.get(&pr.name.to_lowercase()).cloned().unwrap_or_default();
+        // Proje profildekinden farklı bir PHP sürümü istiyorsa o sürümün php-cgi'sine gider
+        let php_port = pools.iter().find(|(v, _)| *v == cfg.php).map(|(_, port)| *port);
         let base = vec![
             ("PROJECT_DIR", fwd(&pr.web_root)),
             ("HOSTNAME", pr.host.clone()),
             ("SSL_DIR", fwd(&p.ssl())),
             ("KD_ROOT", fwd(&p.root)),
+            ("PROXY_PORT", cfg.proxy.to_string()),
         ];
         if !user_owned(&a_dir, &pr.host) {
             let mut v = base.clone();
             v.push(("PORT", apache.port.to_string()));
             v.push(("SSL_PORT", apache.ssl_port.to_string()));
-            let tpl = if apache.ssl { "apache.vhost.ssl.tpl" } else { "apache.vhost.tpl" };
+            v.push((
+                "PHP_HANDLER",
+                php_port
+                    .map(|port| {
+                        format!(
+                            "    <FilesMatch \"\\.php$\">\n        SetHandler \"proxy:balancer://kdphp{port}/\"\n        ProxyFCGISetEnvIf \"reqenv('SCRIPT_FILENAME') =~ m#^(?:proxy:balancer://[^/]+)?/([A-Za-z]:/.*)$#\" SCRIPT_FILENAME \"$1\"\n    </FilesMatch>\n"
+                        )
+                    })
+                    .unwrap_or_default(),
+            ));
+            let tpl = match (cfg.proxy > 0, apache.ssl) {
+                (true, true) => "apache.proxy.ssl.tpl",
+                (true, false) => "apache.proxy.tpl",
+                (false, true) => "apache.vhost.ssl.tpl",
+                (false, false) => "apache.vhost.tpl",
+            };
             let target = a_dir.join(&file);
             let existed = target.exists();
             if write_if_changed(&target, &render_named(tpl, &v))? {
@@ -145,9 +166,10 @@ pub fn sync() -> Result<SyncReport> {
         if !user_owned(&n_dir, &pr.host) {
             let mut v = base.clone();
             v.push(("PORT", nginx.port.to_string()));
+            v.push(("LISTEN", crate::services::nginx_listen(nginx.port, "")));
             let (listen, cert) = if nginx.ssl {
                 (
-                    format!("    listen {} ssl;", nginx.ssl_port),
+                    crate::services::nginx_listen(nginx.ssl_port, " ssl"),
                     format!(
                         "    ssl_certificate \"{0}/{1}.crt\";\n    ssl_certificate_key \"{0}/{1}.key\";\n    ssl_protocols TLSv1.2 TLSv1.3;\n",
                         fwd(&p.ssl()),
@@ -159,7 +181,9 @@ pub fn sync() -> Result<SyncReport> {
             };
             v.push(("SSL_LISTEN", listen));
             v.push(("SSL_CERT", cert));
-            if write_if_changed(&n_dir.join(&file), &render_named("nginx.server.tpl", &v))? {
+            v.push(("PHP_UPSTREAM", php_port.map(|port| format!("127.0.0.1:{port}")).unwrap_or_else(|| "php_upstream".into())));
+            let tpl = if cfg.proxy > 0 { "nginx.proxy.tpl" } else { "nginx.server.tpl" };
+            if write_if_changed(&n_dir.join(&file), &render_named(tpl, &v))? {
                 rep.changed = true;
             }
         }
@@ -295,6 +319,9 @@ pub fn delete_all_auto() -> Result<usize> {
 /// Senkron sonrası çalışan web sunucularını yeniden yükler.
 pub fn sync_and_reload() -> Result<SyncReport> {
     let rep = sync()?;
+    if crate::services::is_running(crate::services::Svc::Apache) || crate::services::is_running(crate::services::Svc::Nginx) {
+        crate::services::phpcgi::ensure_extra()?;
+    }
     if rep.changed {
         use crate::services::{is_running, reload, Svc};
         for svc in [Svc::Apache, Svc::Nginx] {

@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "KaradelikDev pencereleri",
-  "windows": ["main", "prefs", "setup", "databases", "dialog-*"],
+  "windows": ["main", "prefs", "setup", "databases", "projects", "packages", "logs", "dialog-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

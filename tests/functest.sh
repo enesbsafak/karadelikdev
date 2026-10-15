@@ -25,6 +25,15 @@ waitfor 40 'port 80 && port 3306 && port 1025' && ok "Tümünü başlat (Apache,
 for a in phpmyadmin adminer redis; do c=$(http http://localhost/$a/); [ "$c" = 200 ] && ok "/$a/ alias" || bad "/$a/ alias" "HTTP $c"; done
 [ "$(http http://127.0.0.1:8025/)" = 200 ] && ok "Mailpit web arayüzü" || bad "Mailpit UI" "kapalı"
 
+echo "== Güvenlik varsayılanları"
+netstat -ano | grep LISTEN | grep -qE "0\.0\.0\.0:80 |\[::\]:80 " && bad "Apache yalnız loopback" "tüm arabirimleri dinliyor" || ok "Apache yalnız 127.0.0.1/::1 dinliyor"
+echo "SECRET=1" > $R/www/demo/.env
+[ "$(http -H 'Host: demo.test' http://127.0.0.1/.env)" = 403 ] && ok ".env sunulmuyor (403)" || bad ".env" "HTTP $(http -H 'Host: demo.test' http://127.0.0.1/.env)"
+rm -f $R/www/demo/.env
+[ "$(http -H 'Host: demo.test' http://127.0.0.1/phpmyadmin/)" = 403 ] && ok "phpMyAdmin başka host adıyla açılmıyor" || bad "alias Host kontrolü" "HTTP $(http -H 'Host: demo.test' http://127.0.0.1/phpmyadmin/)"
+[ "$(http -H 'Host: evil.example' 'http://127.0.0.1/?q=info')" = 403 ] && ok "phpinfo yabancı Host ile kapalı" || bad "phpinfo Host" "açık"
+[ "$(q "SELECT @@secure_file_priv" | tr -d '\r')" != "" ] && ok "MySQL secure_file_priv kısıtlı" || bad "secure_file_priv" "boş"
+
 echo "== MySQL parolasız varsayılan"
 do_ dbcall:change_root ""
 waitfor 15 '[ "$(q "SELECT 1")" = 1 ]' && ok "root parolası kaldırıldı, parolasız giriş" || bad "parolasız root" "$(q 'SELECT 1' | head -1)"
@@ -68,6 +77,23 @@ do_ vhosts_delete_auto; sleep 2
 [ -z "$(ls $R/etc/apache2/sites-enabled/ | grep '^auto\.')" ] && ok "Tüm [auto] dosyalarını sil" || bad "delete_auto" "dosyalar duruyor"
 do_ vhosts_sync
 waitfor 15 '[ -f $R/etc/apache2/sites-enabled/auto.demo.test.conf ]' && ok "vhost yeniden senkron" || bad "vhosts_sync" "demo conf yok"
+
+echo "== Proje başına ayarlar"
+OTHER=$(ls $R/bin/php | grep -v "^$(phpver)$" | while read v; do [ -f "$R/bin/php/$v/php-cgi.exe" ] && echo "$v"; done | head -1)
+if [ -n "$OTHER" ]; then
+  printf '[demo]\r\nPhp=%s\r\n' "$OTHER" > $R/usr/projects.ini; do_ vhosts_sync
+  WANT=$(echo "$OTHER" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+  waitfor 30 'curl -s -H "Host: demo.test" http://127.0.0.1/ | grep -q "$WANT"' && ok "demo projesi PHP $WANT ile (profil: $(phpver))" || bad "proje başına PHP" "$(curl -s -H 'Host: demo.test' http://127.0.0.1/ | head -c 120)"
+fi
+NODE=$(ls $R/bin/nodejs/*/node.exe 2>/dev/null | head -1)
+if [ -n "$NODE" ]; then
+  "$NODE" -e "require('http').createServer((q,s)=>s.end('node-proxy-ok')).listen(5199,'127.0.0.1')" & NP=$!
+  printf '[demo]\r\nProxy=5199\r\n' > $R/usr/projects.ini; do_ vhosts_sync
+  waitfor 30 'curl -s -H "Host: demo.test" http://127.0.0.1/ | grep -q node-proxy-ok' && ok "demo.test → 127.0.0.1:5199 proxy" || bad "proxy" "$(curl -s -H 'Host: demo.test' http://127.0.0.1/ | head -c 120)"
+  kill $NP 2>/dev/null
+fi
+rm -f $R/usr/projects.ini; do_ vhosts_sync
+waitfor 30 'curl -s -H "Host: demo.test" http://127.0.0.1/ | grep -q "$(phpver | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1)"' && ok "ayar kaldırılınca profildeki PHP" || bad "proje ayarı geri alma" "$(curl -s -H 'Host: demo.test' http://127.0.0.1/ | head -c 120)"
 
 echo "== Hızlı uygulama"
 do_ quick_create:Blank kdblank

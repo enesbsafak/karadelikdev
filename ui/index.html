@@ -34,6 +34,11 @@
     </div>
   </header>
 
+  <div class="notice hidden" id="updateNotice">
+    <span id="updateText"></span>
+    <button class="btn primary" id="updateBtn" data-i18n="btn.update">Güncelle</button>
+  </div>
+
   <div class="notice hidden" id="laragonNotice">
     <span id="laragonText"></span>
     <button class="btn primary" id="importBtn" data-i18n="ui.import">İçe aktar</button>
@@ -46,7 +51,10 @@
       <h2 data-i18n="ui.empty_title"></h2>
       <div data-i18n="ui.empty_text"></div>
     </div>
-    <div class="section-title"><span data-i18n="ui.projects">Projeler</span><span id="docroot" class="svc-ver"></span></div>
+    <div class="section-title">
+      <span><span data-i18n="ui.projects">Projeler</span> · <a href="#" id="manageProjects" data-i18n="ui.manage">Yönet</a></span>
+      <span id="docroot" class="svc-ver"></span>
+    </div>
     <div class="projects" id="projects"></div>
   </main>
 

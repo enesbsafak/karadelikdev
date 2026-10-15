@@ -84,6 +84,10 @@ pub fn env_vars() -> Vec<(String, String)> {
     if crate::services::is_running(crate::services::Svc::Mysql) {
         v.push(("MYSQL_PWD".into(), crate::mysqlops::root_password()));
     }
+    let pg = crate::services::others::pg_password();
+    if !pg.is_empty() {
+        v.push(("PGPASSWORD".into(), pg));
+    }
     v
 }
 
@@ -95,7 +99,7 @@ pub fn env_cmd_path() -> PathBuf {
 pub fn write_env_cmd() -> Result<PathBuf> {
     let mut lines = vec!["@echo off".to_string(), ":: KaradelikDev tarafından üretilir. Elle düzenlemeyin; kendi komutlarınız için usr\\user.cmd".to_string()];
     for (k, v) in env_vars() {
-        if k == "MYSQL_PWD" {
+        if k == "MYSQL_PWD" || k == "PGPASSWORD" {
             continue;
         }
         lines.push(format!("set \"{k}={v}\""));
