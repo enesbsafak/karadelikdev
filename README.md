@@ -59,6 +59,8 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 - Projeyi klonlama ve silme (veritabanıyla birlikte)
 - Cloudflare Tunnel veya ngrok ile internete paylaşma, QR kod
 
+<p align="center"><img src="docs/screenshots/projects.png" width="640" alt="Projeler ekranı: proje başına PHP sürümü ve proxy portu"></p>
+
 **Veritabanı yöneticisi**
 - Bağlantı bilgileri tek ekranda, parola değiştirme ve kaldırma
 - Veritabanı listesi (tablo sayısı, boyut), oluşturma, silme, phpMyAdmin'de açma
@@ -86,6 +88,11 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 - **Laragon'dan içe aktar:** mevcut Laragon kurulumunun binary'lerini kopyalamadan kullanır
 - Windows Terminal / cmd / PowerShell / Cmder; tüm sürümler PATH'te hazır (`Ctrl+Alt+T`)
 - Procfile (arka plan komutları), yerleşik cron, profiller, PATH ve Explorer sağ tık menüsü
+
+<p align="center">
+<img src="docs/screenshots/packages.png" width="420" alt="Paketler ekranı">
+<img src="docs/screenshots/logs.png" width="420" alt="Loglar ekranı">
+</p>
 - Türkçe ve İngilizce arayüz
 
 ## Neden KaradelikDev?
