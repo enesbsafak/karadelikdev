@@ -65,6 +65,8 @@ pub fn set(name: &str, cfg: &ProjectCfg) -> Result<()> {
         }
     }
     ini.write_to_file(file())?;
+    // Terminaldeki `php` da proje sürümünü kullansın (usr/bin/php)
+    let _ = crate::terminal::write_env_cmd();
     Ok(())
 }
 

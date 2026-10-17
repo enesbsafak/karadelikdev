@@ -51,7 +51,7 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 **Projeler**
 - **Otomatik sanal host:** `www\blog` → `http://blog.test`, alt alan adları dahil (`api.blog.test`)
 - Laravel/Symfony `public` klasörünü kendiliğinden algılama
-- **Proje başına PHP sürümü:** her proje farklı bir PHP sürümüyle çalışabilir (Apache ve Nginx, php-cgi)
+- **Proje başına PHP sürümü:** her proje farklı bir PHP sürümüyle çalışabilir (Apache ve Nginx, php-cgi); terminalde `php`, `composer` ve `artisan` da o sürümü kullanır
 - **Node/Vite proxy:** `http://proje.test` adresini `npm run dev` gibi bir geliştirme sunucusuna yönlendirme, WebSocket/HMR dahil
 - **Projeler ekranı:** PHP sürümü, proxy portu, klasör, terminal, paylaşma, klonlama ve silme tek listede
 - hosts dosyası yönetimi (değişiklik olduğunda yönetici izni sorar)
@@ -73,6 +73,7 @@ Apache, Nginx, PHP, MySQL/MariaDB, PostgreSQL, MongoDB, Redis, Memcached ve Mail
 **PHP**
 - Birden çok PHP sürümü, tek tıkla geçiş
 - Eklentileri ve hızlı ayarları (xdebug, opcache, memory_limit, upload boyutu…) menüden açıp kapatma
+- **Eklenti kurma:** Xdebug, Redis (phpredis), Imagick, MongoDB, PCOV, APCu, igbinary tek tıkla; Windows'ta PECL'in resmi DLL'leri, macOS'ta `pecl install`. Xdebug hızlı ayarı kurulu değilse önce kurar
 - `mail()` → Mailpit, `cacert.pem` ve php.ini yolları otomatik
 - Otomatik güncelleme: yeni PHP yama sürümlerini SHA-256 doğrulamasıyla indirir
 
@@ -187,6 +188,9 @@ macOS sürümü Windows'taki özelliklerin tamamını aynı arayüzle sunar; yal
 **Profiller.** Seçili sürümler (PHP, MySQL, Apache…) profil olarak saklanır; Menü → Profil ile geçiş yapılır.
 
 **Proje başına PHP sürümü.** Ana pencerede Projeler → Yönet (veya Menü → KaradelikDev → Projeler) ekranında bir projeye profildekinden farklı bir PHP sürümü seçin. O sürümün `php-cgi.exe`'si 9101'den başlayan portlarda ayrıca çalıştırılır; diğer projeler profildeki sürümle devam eder. Ayarlar `usr\projects.ini`'de tutulur.
+Terminalde de geçerlidir: `usr\bin\php.cmd` (macOS `usr/bin/php`) çalışılan klasöre bakar; proje klasöründe veya alt klasöründeyseniz o projenin PHP'sini ve php.ini'sini, değilse profildeki sürümü çalıştırır. `usr\bin` PATH'in ilk dizini olduğundan KaradelikDev terminali, PATH'e eklendiyse diğer terminaller ve IDE terminalleri, Procfile ve cron komutları (`php artisan schedule:run`) aynı sürümü kullanır. Farklı sürümlü proje yoksa bu dosya oluşturulmaz. Windows'ta `cmd` toplu iş dosyası olduğundan uzun süren bir komutu Ctrl+C ile durdurunca "Toplu iş sonlandırılsın mı?" sorusu çıkabilir.
+
+**PHP eklentisi kurma.** Menü → PHP → Eklentiler → Eklenti kur. Windows'ta seçili PHP derlemesine (sürüm, TS/NTS, VS16/VS17) uygun DLL `downloads.php.net/~windows/pecl` üzerinden indirilir; eklenti `ext\`'e, gerekli yan DLL'ler (Imagick) PHP klasörüne kopyalanır. macOS'ta Homebrew PHP'nin `pecl install` komutu kaynaktan derler (autoconf, pkgconf ve gereken kütüphaneler Homebrew'dan kurulur; birkaç dakika sürebilir). Eklenti php.ini'de açılır ve PHP'nin yükleyebildiği denetlenir; yüklenemezse değişiklik geri alınır. Komut satırından: `karadelikdev --headless ext-install <ad>`.
 
 **Node/Vite proxy.** Aynı ekranda **Proxy portu** alanına geliştirme sunucusunun portunu (ör. Vite için `5173`) yazın. `http://proje.test` o porta yönlendirilir; WebSocket (HMR) de geçer. Sunucuyu kendiniz başlatın (terminal veya Procfile: `Vite: npm run dev pwd=www/proje`).
 
@@ -296,7 +300,7 @@ bash tests/functest-extra-services.sh     # PostgreSQL, MongoDB, MariaDB (12 kon
 src-tauri\src\
 ├─ services\      apache, nginx, mysql, phpcgi, others (pg, mongo, redis, memcached, mailpit, php server), winservice
 ├─ vhosts.rs      otomatik sanal host ve alias'lar
-├─ php.rs         php.ini, eklentiler, mod_php / php-cgi
+├─ php.rs         php.ini, eklentiler, mod_php / php-cgi      phpext.rs   eklenti kurulumu (PECL)
 ├─ mysqlops.rs    veritabanı işlemleri ve yöneticisi
 ├─ setup.rs       ilk kurulum sihirbazı
 ├─ menu.rs        native menü           actions.rs   menü eylemleri
@@ -318,10 +322,10 @@ scripts/release.sh              macOS sürüm paketi: dmg, app.tar.gz; SHA256SUM
 **Sürüm yayınlama**
 
 1. `src-tauri\Cargo.toml`, `package.json` ve `src-tauri\tauri.conf.json` içindeki sürümü yükseltin, `docs\releases\<sürüm>.md` notunu yazın.
-2. `powershell -ExecutionPolicy Bypass -File scripts\release.ps1` → `dist\` altında `KaradelikDev-<sürüm>-setup.exe`, `SHA256SUMS.txt` ve `latest.json`.
-   Windows makinesi yoksa: Actions → **Windows sürüm paketi** iş akışı aynı betiği çalıştırıp `windows-dist` yapıtını üretir (`gh run download -n windows-dist -D dist`).
-3. macOS: Windows'un `dist\` çıktısını Mac'teki `dist/` klasörüne kopyalayıp `bash scripts/release.sh` (Intel için ayrıca `--universal`) çalıştırın; dmg ve app.tar.gz eklenir, `latest.json`'a `platforms` girdileri yazılır (eski Windows istemcileri `url`/`sha256` alanlarını okumaya devam eder).
-4. Önce main'i push edin, sonra dosyaları `v<sürüm>` etiketli GitHub sürümüne yükleyin (betik `gh release create` komutunu yazdırır; push'tan önce çalıştırılırsa etiket eski commit'e bağlanır). Uygulama içi güncelleyici son sürümdeki `latest.json`'u okur; bu dosya eksikse kullanıcılara güncelleme görünmez.
+2. main'i push edin, sonra Actions → **Sürüm** iş akışını main üzerinde çalıştırın (`gh workflow run release.yml --ref main`). Windows koşucusu `scripts\release.ps1` ile setup, `SHA256SUMS.txt` ve `latest.json` üretir; macOS koşucusu `bash scripts/release.sh --universal` ile aarch64 ve x86_64 dmg ile app.tar.gz'yi ekler, `latest.json`'a `platforms` girdilerini yazar (eski Windows istemcileri `url`/`sha256` alanlarını okumaya devam eder). Sonuç `dist` yapıtı ve çalıştırılan commit'e bağlı **taslak** `v<sürüm>` sürümüdür.
+3. Taslağı inceleyip yayımlayın. Uygulama içi güncelleyici son yayımlanmış sürümdeki `latest.json`'u okur; taslaklar ve bu dosyası eksik sürümler kullanıcılara görünmez.
+
+Elle paketleme de mümkündür: Windows'ta `scripts\release.ps1`, ardından `dist\` Mac'teki `dist/`'e kopyalanıp `bash scripts/release.sh --universal`; önce main push, sonra betiğin yazdırdığı `gh release create` komutu.
 
 ## Lisans
 

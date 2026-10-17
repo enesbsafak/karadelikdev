@@ -37,6 +37,9 @@ jobs:
           printf '[preferences]\r\nFirstRun=0\r\n[service.apache]\r\nEnabled=1\r\nPort=80\r\nSSL=1\r\nSSLPort=443\r\n' > runtime/usr/karadelik.ini
       - name: Kurulum (paketleri indir)
         run: ./src-tauri/target/debug/karadelikdev.exe --setup php-8.4,php-8.3,apache-2.4.69,nginx-1.30.6,mysql-8.4,redis-8.10,memcached-1.6.8,node-24.22,composer,mailpit,phpmyadmin,adminer
+      # Uygulama açılmadan: eklentiler kurulur, böylece uçtan uca testte Apache/php-cgi bu eklentilerle çalışır
+      - name: PHP eklentileri ve proje başına PHP
+        run: bash tests/phpenv.sh
       - name: 80/443 portlarını boşalt (koşucuda IIS / http.sys dinliyor)
         shell: pwsh
         run: |
@@ -114,6 +117,9 @@ jobs:
           printf '[preferences]\nFirstRun=0\n[service.apache]\nEnabled=1\nPort=80\nSSL=1\nSSLPort=443\n' > "$KARADELIK_ROOT/usr/karadelik.ini"
       - name: Kurulum (Homebrew paketlerini bağla, phpMyAdmin/Composer indir)
         run: ./src-tauri/target/debug/karadelikdev --setup "php-8.5,php-8.3,apache,nginx,mysql-8.4,redis,memcached,mailpit,composer,phpmyadmin,adminer"
+      - name: PHP eklentileri (pecl) ve proje başına PHP
+        timeout-minutes: 60
+        run: bash tests/phpenv.sh
       - name: Uygulamayı başlat
         id: app
         run: |

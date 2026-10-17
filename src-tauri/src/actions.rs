@@ -561,6 +561,12 @@ fn php_action(op: &str, arg: &str) -> Result<()> {
             status(&format!("{arg}: {}", if on { "ON" } else { "OFF" }));
             Ok(())
         }),
+        "extinstall" => bg("menu.ext_install", move || {
+            let v = crate::phpext::install(&arg)?;
+            restart_php_consumers()?;
+            notify(&tf("msg.ext_installed", &[&format!("{arg} {v}").trim().to_string()]));
+            Ok(())
+        }),
         "quick" => bg("menu.quick_settings", move || {
             crate::php::toggle_quick(&arg)?;
             restart_php_consumers()?;

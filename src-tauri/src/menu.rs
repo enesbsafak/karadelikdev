@@ -463,7 +463,16 @@ fn tree(st: &[SvcStatus], tray: bool) -> Vec<Node> {
     // ---- PHP
     let mut php = svc_head(st, Svc::PhpServer);
     let quick: Vec<Node> = crate::php::quick_settings().into_iter().map(|(k, label, on)| check(format!("php:quick:{k}"), label, on)).collect();
-    let exts: Vec<Node> = crate::php::extensions().into_iter().map(|(n, on)| check(format!("php:ext:{n}"), n, on)).collect();
+    let mut exts: Vec<Node> = crate::php::extensions().into_iter().map(|(n, on)| check(format!("php:ext:{n}"), n, on)).collect();
+    if crate::php::dir().is_some() {
+        let install: Vec<Node> = crate::phpext::installable().into_iter().map(|e| item(format!("php:extinstall:{}", e.name), e.title)).collect();
+        if !install.is_empty() {
+            if !exts.is_empty() {
+                exts.push(Node::Sep);
+            }
+            exts.push(sub(t("menu.ext_install"), install));
+        }
+    }
     php.extend([
         Node::Sep,
         sub(t("menu.quick_settings"), if quick.is_empty() { vec![disabled(t("menu.not_installed"))] } else { quick }),

@@ -76,6 +76,28 @@ pub fn handle(args: &[String]) -> Option<i32> {
                         1
                     }
                 }),
+                // Seçili PHP sürümüne eklenti kurar ve php.ini'de açar (ör. xdebug, redis)
+                Some("ext-install") => Some(match crate::phpext::install(args.get(3).map(String::as_str).unwrap_or("")) {
+                    Ok(v) => {
+                        println!("{} {v}", args[3]);
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("[KaradelikDev] {e:#}");
+                        1
+                    }
+                }),
+                // Ortam dosyasını ve proje başına PHP yönlendiricisini (usr/bin/php) yeniden yazar
+                Some("env") => Some(match crate::terminal::write_env_cmd() {
+                    Ok(f) => {
+                        println!("{}", f.display());
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("[KaradelikDev] {e:#}");
+                        1
+                    }
+                }),
                 _ => Some(2),
             }
         }

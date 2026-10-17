@@ -162,5 +162,5 @@ bash tests/functest.sh && bash tests/functest-extra-services.sh
 2. İmza kararı (Developer ID + notarization veya ad-hoc). Karar verilirse `tauri.macos.conf.json` `signingIdentity` ve
    notarization ortam değişkenleri (`APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`).
 3. Gerçek bir Intel Mac'te (veya Rosetta ile) çalıştırma ve ilk gerçek GitHub sürümünden (1.3.0 → sonraki) güncelleme.
-4. Sonraki sürümler: sürüm numarası + `docs/releases/<sürüm>.md`; Actions → **Windows sürüm paketi** (veya Windows'ta
-   `scripts\release.ps1`) → `windows-dist` Mac'te `dist/`'e → `bash scripts/release.sh --universal` → önce `main` push, sonra `gh release create`.
+4. Sonraki sürümler: sürüm numarası + `docs/releases/<sürüm>.md` → `main` push → Actions → **Sürüm** (`release.yml`:
+   Windows ve macOS paketleri koşucularda derlenir, taslak sürüm oluşur) → taslağı yayımla. Mac gerekmez.

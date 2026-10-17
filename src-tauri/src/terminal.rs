@@ -110,6 +110,105 @@ pub fn env_vars() -> Vec<(String, String)> {
     v
 }
 
+/// Proje başına PHP: `usr/bin/php` (Windows `php.cmd`) çalışma dizinine bakar; proje klasörünün içindeyse
+/// o projenin sürümünü (`usr/projects.ini` `Php=`) ve php.ini'sini (PHPRC), değilse profildeki sürümü çalıştırır.
+/// `usr/bin` PATH'in ilk dizini olduğundan `php artisan`, `composer` ve Procfile/cron komutları da bu sürümü kullanır.
+/// Sürümü farklı proje yoksa dosya silinir; `php` doğrudan profildeki ikiliye çözülür.
+pub fn write_php_shim() -> Result<()> {
+    let file = paths().usr().join("bin").join(if cfg!(windows) { "php.cmd" } else { "php" });
+    let current = crate::php::version_name().unwrap_or_default();
+    let root = PathBuf::from(settings().document_root);
+    let mut entries = vec![];
+    for (name, cfg) in crate::projects::all() {
+        if cfg.php.is_empty() || cfg.php == current {
+            continue;
+        }
+        if let Some(php) = crate::php::php_exe_for(&cfg.php) {
+            // Proje sürümünün php.ini'si yalnız php-cgi havuzu başlarken oluşuyordu; terminalde de gerekli
+            if let Err(e) = crate::php::ensure_ini_for(&cfg.php) {
+                crate::kcore::log(&format!("php.ini {}: {e:#}", cfg.php));
+            }
+            entries.push(ShimEntry { dir: root.join(&name), php, ini: crate::php::ini_dir_for(&cfg.php) });
+        }
+    }
+    let default = crate::php::php_exe();
+    let (Some(default), false) = (default, entries.is_empty()) else {
+        if file.exists() {
+            std::fs::remove_file(&file)?;
+        }
+        return Ok(());
+    };
+    if util::write_if_changed(&file, &php_shim(&default, &entries))? {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))?;
+        }
+    }
+    Ok(())
+}
+
+pub struct ShimEntry {
+    pub dir: PathBuf,
+    pub php: PathBuf,
+    pub ini: PathBuf,
+}
+
+/// cmd.exe: önek karşılaştırması `if /i` ile (büyük/küçük harf duyarsız). Toplu iş dosyası OEM kod sayfasıyla okunduğu
+/// için ASCII dışı ya da `!`, `%`, `"` içeren yollar atlanır (o projede profildeki sürüm çalışır). Değişkenler
+/// gecikmeli genişletme kapalıyken taşınır; böylece `%*` argümanlarındaki `!` bozulmaz.
+#[cfg(windows)]
+pub fn php_shim(default: &Path, entries: &[ShimEntry]) -> String {
+    let ok = |p: &Path| {
+        let s = p.display().to_string();
+        s.is_ascii() && !s.contains(['!', '%', '"'])
+    };
+    let mut l = vec![
+        "@echo off".to_string(),
+        ":: KaradelikDev tarafından üretilir (usr\\projects.ini'deki proje başına PHP sürümleri). Elle düzenlemeyin.".into(),
+        "setlocal DisableDelayedExpansion".into(),
+        "set \"KD_D=%CD%\\\"".into(),
+        format!("set \"KD_PHP={}\"", default.display()),
+        "setlocal EnableDelayedExpansion".into(),
+    ];
+    for e in entries.iter().filter(|e| ok(&e.dir) && ok(&e.php) && ok(&e.ini)) {
+        // %CD% ters eğik çizgilidir; ayarlardaki kök `C:/...` biçiminde olabilir
+        let prefix = format!("{}\\", e.dir.display().to_string().replace('/', "\\").trim_end_matches('\\'));
+        l.push(format!(
+            "if /i \"!KD_D:~0,{}!\"==\"{prefix}\" (set \"KD_PHP={}\" & set \"PHPRC={}\")",
+            prefix.chars().count(),
+            e.php.display(),
+            e.ini.display()
+        ));
+    }
+    l.push("endlocal & set \"KD_PHP=%KD_PHP%\" & set \"PHPRC=%PHPRC%\"".into());
+    l.push("\"%KD_PHP%\" %*".into());
+    l.push("exit /b %ERRORLEVEL%".into());
+    l.join("\r\n") + "\r\n"
+}
+
+#[cfg(not(windows))]
+pub fn php_shim(default: &Path, entries: &[ShimEntry]) -> String {
+    let q = |p: &Path| crate::platform::sh_quote(&p.display().to_string());
+    let mut l = vec![
+        "#!/bin/sh".to_string(),
+        "# KaradelikDev tarafından üretilir (usr/projects.ini'deki proje başına PHP sürümleri). Elle düzenlemeyin.".into(),
+        "case \"$PWD/\" in".into(),
+    ];
+    for e in entries {
+        let prefix = format!("{}/", e.dir.display().to_string().trim_end_matches('/'));
+        l.push(format!(
+            "  {}*) PHPRC={}; export PHPRC; exec {} \"$@\" ;;",
+            crate::platform::sh_quote(&prefix),
+            q(&e.ini),
+            q(&e.php)
+        ));
+    }
+    l.push("esac".into());
+    l.push(format!("exec {} \"$@\"", q(default)));
+    l.join("\n") + "\n"
+}
+
 pub fn env_cmd_path() -> PathBuf {
     paths().usr().join(if cfg!(windows) { "kdenv.cmd" } else { "kdenv.sh" })
 }
@@ -122,6 +221,9 @@ pub fn user_script_path() -> PathBuf {
 /// Ortam dosyasını günceller (`usr/kdenv.sh`): seçili sürümler PATH'in başında.
 #[cfg(not(windows))]
 pub fn write_env_cmd() -> Result<PathBuf> {
+    if let Err(e) = write_php_shim() {
+        crate::kcore::log(&format!("usr/bin/php: {e:#}"));
+    }
     let q = |s: &str| crate::platform::sh_quote(s);
     let mut lines = vec!["# KaradelikDev tarafından üretilir. Elle düzenlemeyin; kendi komutlarınız için usr/user.sh".to_string()];
     for (k, v) in env_vars() {
@@ -142,6 +244,9 @@ pub fn write_env_cmd() -> Result<PathBuf> {
 /// usr\kdenv.cmd dosyasını günceller.
 #[cfg(windows)]
 pub fn write_env_cmd() -> Result<PathBuf> {
+    if let Err(e) = write_php_shim() {
+        crate::kcore::log(&format!("usr\\bin\\php.cmd: {e:#}"));
+    }
     let mut lines = vec!["@echo off".to_string(), ":: KaradelikDev tarafından üretilir. Elle düzenlemeyin; kendi komutlarınız için usr\\user.cmd".to_string()];
     for (k, v) in env_vars() {
         if k == "MYSQL_PWD" || k == "PGPASSWORD" {
@@ -271,4 +376,34 @@ pub fn edit(file: &Path) -> Result<()> {
     }
     c.arg(file).spawn().with_context(|| editor.display().to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn php_shim_cmd() {
+        let e = |d: &str, v: &str| ShimEntry {
+            dir: PathBuf::from(d),
+            php: PathBuf::from(format!(r"C:\kd\bin\php\{v}\php.exe")),
+            ini: PathBuf::from(format!(r"C:\kd\etc\php\{v}")),
+        };
+        let s = php_shim(Path::new(r"C:\kd\bin\php\8.4\php.exe"), &[e(r"C:/kd/www\blog", "8.2"), e(r"C:\kd\www\çay", "8.1")]);
+        assert!(s.contains(r#"set "KD_PHP=C:\kd\bin\php\8.4\php.exe""#));
+        assert!(s.contains(r#"if /i "!KD_D:~0,15!"=="C:\kd\www\blog\" (set "KD_PHP=C:\kd\bin\php\8.2\php.exe" & set "PHPRC=C:\kd\etc\php\8.2")"#));
+        // ASCII dışı yol atlanır
+        assert!(!s.contains("8.1"));
+        assert!(s.ends_with("\"%KD_PHP%\" %*\r\nexit /b %ERRORLEVEL%\r\n"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn php_shim_sh() {
+        let e = ShimEntry { dir: "/kd/www/blog".into(), php: "/opt/php@8.2/bin/php".into(), ini: "/kd/etc/php/8.2".into() };
+        let s = php_shim(Path::new("/opt/php/bin/php"), &[e]);
+        assert!(s.contains("  '/kd/www/blog/'*) PHPRC='/kd/etc/php/8.2'; export PHPRC; exec '/opt/php@8.2/bin/php' \"$@\" ;;"));
+        assert!(s.ends_with("esac\nexec '/opt/php/bin/php' \"$@\"\n"));
+    }
 }

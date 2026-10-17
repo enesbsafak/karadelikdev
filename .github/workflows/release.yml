@@ -1,0 +1,70 @@
+# Sürüm paketi: Windows (scripts\release.ps1: NSIS setup, SHA256SUMS.txt, latest.json) ve macOS
+# (scripts/release.sh --universal: aarch64 + x86_64 dmg ve app.tar.gz, aynı SHA256SUMS.txt ve latest.json'a eklenir)
+# koşucularda derlenir; sonuç "dist" yapıtı olarak yüklenir ve main'den çalıştırıldıysa GitHub'da taslak (draft)
+# v<sürüm> sürümü oluşturulur. Taslak elle incelenip yayımlanır; yayımlanınca güncelleyici latest.json'u görür.
+# Önce sürüm numaraları ve docs/releases/<sürüm>.md main'e push edilmelidir (etiket çalıştırılan commit'e bağlanır).
+name: Sürüm
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - name: release.ps1
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\release.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+          if-no-files-found: error
+
+  macos:
+    needs: windows
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: dist/
+      - name: release.sh --universal
+        run: bash scripts/release.sh --universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+      - name: Taslak sürüm
+        if: github.ref == 'refs/heads/main'
+        run: |
+          v=$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' src-tauri/Cargo.toml | head -1)
+          if gh release view "v$v" >/dev/null 2>&1; then
+            echo "v$v zaten var; taslak oluşturulmadı (yapıt: dist)" >&2; exit 1
+          fi
+          assets=$(ls dist | grep -v RELEASE_NOTES.md | sed 's#^#dist/#')
+          gh release create "v$v" $assets --draft --target "$GITHUB_SHA" \
+            --title "KaradelikDev $v" --notes-file "docs/releases/$v.md"
+          echo "Taslak: $(gh release view "v$v" --json url -q .url)"

@@ -39,6 +39,10 @@ pub fn php_exe() -> Option<PathBuf> {
     dir().and_then(|d| bin_file(&d, "php"))
 }
 
+pub fn php_exe_for(ver: &str) -> Option<PathBuf> {
+    bin_file(&dir_for(ver), "php")
+}
+
 pub fn cgi_exe() -> Option<PathBuf> {
     dir().and_then(|d| cgi_exe_for(&d))
 }
@@ -256,6 +260,32 @@ pub fn extension_enabled(content: &str, name: &str) -> bool {
         .any(|c| c.get(1).map(|m| m.as_str().is_empty()).unwrap_or(false))
 }
 
+/// Eklenti dizini: Windows `ext\`; Homebrew'da php.ini'deki `extension_dir`, yoksa derlemedeki varsayılan
+/// (pecl eklentilerinin kurulduğu `<önek>/lib/php/pecl/<api>`; PHP'ye bir kez sorulup saklanır).
+pub fn ext_dir(pdir: &Path, ini_content: &str) -> Option<PathBuf> {
+    static CACHE: once_cell::sync::Lazy<parking_lot::Mutex<std::collections::HashMap<PathBuf, Option<PathBuf>>>> =
+        once_cell::sync::Lazy::new(Default::default);
+    let win = pdir.join("ext");
+    if win.is_dir() {
+        return Some(win);
+    }
+    if let Some(d) = get_value(ini_content, "extension_dir").map(|d| d.trim_matches('"').to_string()).filter(|d| !d.is_empty()) {
+        return Some(PathBuf::from(d));
+    }
+    let mut cache = CACHE.lock();
+    cache
+        .entry(pdir.to_path_buf())
+        .or_insert_with(|| {
+            let php = bin_file(pdir, "php")?;
+            let mut c = crate::util::hidden(php);
+            c.args(["-n", "-r", "echo ini_get('extension_dir');"]);
+            let (code, out) = crate::util::run_capture(c).ok()?;
+            let d = PathBuf::from(out.trim());
+            (code == 0 && d.is_absolute()).then_some(d)
+        })
+        .clone()
+}
+
 /// Paylaşımlı eklenti dosyalarının adları: Windows `ext/php_<ad>.dll`, Homebrew `<extension_dir>/<ad>.so`
 /// (pecl ile kurulanlar; çekirdek eklentiler derlemenin içindedir, opcache conf.d ile yüklenir).
 fn ext_names(pdir: &Path, ini_content: &str) -> Vec<String> {
@@ -272,7 +302,7 @@ fn ext_names(pdir: &Path, ini_content: &str) -> Vec<String> {
             })
             .unwrap_or_default();
     }
-    let Some(ext_dir) = get_value(ini_content, "extension_dir").filter(|d| !d.is_empty()) else { return vec![] };
+    let Some(ext_dir) = ext_dir(pdir, ini_content) else { return vec![] };
     fs::read_dir(ext_dir)
         .map(|rd| {
             rd.flatten()
@@ -333,11 +363,15 @@ pub fn quick_settings() -> Vec<(String, String, bool)> {
         ("display_errors".to_string(), "display_errors = On".to_string(), val("display_errors").eq_ignore_ascii_case("on")),
         ("opcache".to_string(), "opcache".to_string(), dir().map(|d| opcache_on(&d, &c)).unwrap_or(false)),
     ];
-    if let Some(x) = xdebug_name() {
-        v.insert(0, ("xdebug".to_string(), "xdebug".to_string(), extension_enabled(&c, &x)));
-    }
+    // Kurulu değilse de gösterilir; seçilince indirilip açılır
+    let xdebug_on = xdebug_name().map(|x| extension_enabled(&c, &x)).unwrap_or(false);
+    v.insert(0, ("xdebug".to_string(), "xdebug".to_string(), xdebug_on));
     v
 }
+
+/// Xdebug ilk açıldığında php.ini'ye eklenen ayarlar: adım adım hata ayıklama, yalnız tetikleyiciyle
+/// (XDEBUG_TRIGGER çerezi/parametresi veya tarayıcı eklentisi) başlar; IDE 9003'te dinler.
+pub const XDEBUG_DEFAULTS: &str = "\n[xdebug]\nxdebug.mode = debug\nxdebug.start_with_request = trigger\nxdebug.client_port = 9003\n";
 
 pub fn toggle_quick(key: &str) -> Result<()> {
     let ini = ensure_ini()?;
@@ -372,11 +406,15 @@ pub fn toggle_quick(key: &str) -> Result<()> {
             }
         }
         "xdebug" => {
-            let x = xdebug_name().ok_or_else(|| anyhow!(crate::i18n::t("msg.no_xdebug")))?;
+            // Kurulu değilse indirilip açılır (phpext)
+            let Some(x) = xdebug_name() else {
+                crate::phpext::install("xdebug")?;
+                return Ok(());
+            };
             let on = !extension_enabled(&c, &x);
             c = set_extension(&c, &x, on, true);
             if on && !c.contains("xdebug.mode") {
-                c.push_str("\n[xdebug]\nxdebug.mode = debug\nxdebug.start_with_request = trigger\nxdebug.client_port = 9003\n");
+                c.push_str(XDEBUG_DEFAULTS);
             }
         }
         _ => {}

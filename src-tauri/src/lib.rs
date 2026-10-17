@@ -14,6 +14,7 @@ mod packages;
 mod paths;
 mod platform;
 mod php;
+mod phpext;
 mod procfile;
 mod projects;
 mod quickapp;
