@@ -17,12 +17,13 @@ PHPDIR=$R/bin/php/$CUR
 PHPBIN=$PHPDIR/php$X; [ -f "$PHPBIN" ] || PHPBIN=$PHPDIR/bin/php
 INIDIR=$R/etc/php/$CUR
 # Komutu verilen dizinde, KaradelikDev terminalindeki gibi usr/bin PATH'in başındayken çalıştırır
+RBIN="$(cd "$R" && pwd)/usr/bin"
 in_dir() {
   local d=$1; shift
   if [ -n "$MAC" ]; then
-    (cd "$d" && PATH="$(cd $R && pwd)/usr/bin:$PATH" "$@")
+    (cd "$d" && PATH="$RBIN:$PATH" "$@")
   else
-    (cd "$d" && PATH="$(cd $R && pwd)/usr/bin:$PATH" cmd //c "$@")
+    (cd "$d" && PATH="$RBIN:$PATH" cmd //c "$@")
   fi
 }
 

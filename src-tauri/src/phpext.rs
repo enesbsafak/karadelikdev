@@ -166,7 +166,13 @@ fn fetch(ext: &Ext, pdir: &Path) -> Result<String> {
     // Sorulan seçenekler (ör. redis: igbinary desteği) varsayılanla yanıtlanır
     let cmd = format!("yes '' | {} -d php_ini= install {}", q(&pecl), ext.name);
     let mut c = crate::util::hidden("/bin/sh");
-    c.arg("-c").arg(&cmd).env("PKG_CONFIG_PATH", &pkgconfig);
+    // Apple Silicon'da /opt/homebrew/include derleyicinin varsayılan arama yolunda değil; PHP başlıkları
+    // Homebrew'un pcre2.h'sini ister (pcov, apcu)
+    c.arg("-c")
+        .arg(&cmd)
+        .env("PKG_CONFIG_PATH", &pkgconfig)
+        .env("CPPFLAGS", format!("-I{}", prefix.join("include").display()))
+        .env("LDFLAGS", format!("-L{}", prefix.join("lib").display()));
     status(&tf("msg.ext_building", &[ext.title]));
     let (code, out) = run_capture(c)?;
     log(&format!("pecl install {}:\n{}", ext.name, tail(&out)));
