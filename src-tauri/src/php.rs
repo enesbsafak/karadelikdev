@@ -128,6 +128,8 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
             .find(|f| f.exists())
             .ok_or_else(|| anyhow!("php.ini-development bulunamadı: {}", pdir.display()))?;
         let mut c = read_ini(&src);
+        // Sistemin saat dilimi (IANA adı, ör. Europe/Istanbul); bulunamazsa UTC
+        let tz = iana_time_zone::get_timezone().unwrap_or_else(|_| "UTC".into());
         for (k, v) in [
             ("memory_limit", "512M"),
             ("upload_max_filesize", "2G"),
@@ -135,7 +137,7 @@ pub fn ensure_ini_for(ver: &str) -> Result<PathBuf> {
             ("max_execution_time", "36000"),
             ("max_input_vars", "10000"),
             ("display_errors", "On"),
-            ("date.timezone", "Europe/Istanbul"),
+            ("date.timezone", tz.as_str()),
             ("cgi.fix_pathinfo", "1"),
         ] {
             c = set_value(&c, k, v);

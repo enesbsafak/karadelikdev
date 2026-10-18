@@ -31,7 +31,7 @@
       "app",
       "dmg"
     ],
-    "shortDescription": "macOS ve Windows için yerel geliştirme ortamı",
+    "shortDescription": "Local development environment for macOS and Windows",
     "category": "DeveloperTool",
     "icon": [
       "icons/32x32.png",

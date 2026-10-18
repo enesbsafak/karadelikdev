@@ -13,6 +13,12 @@ pub const EXE_SUFFIX: &str = ".exe";
 pub const PATH_SEP: &str = ";";
 /// Ürettiğimiz metin dosyalarının satır sonu.
 pub const LINE_END: &str = "\r\n";
+/// İşletim sisteminin arayüz dili Türkçe mi (ilk açılışta uygulama dilini seçmek için).
+pub fn system_language_is_turkish() -> bool {
+    // LANGID'in alt 10 biti birincil dil; LANG_TURKISH = 0x1F
+    (unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() } & 0x3FF) == 0x1F
+}
+
 /// Kurulumlu sürümde veri klasörünün varsayılanı: kısa ve boşluksuz (Apache/MySQL boşluklu yollarla sorun çıkarır).
 pub fn default_data_root() -> PathBuf {
     PathBuf::from(r"C:\karadelik")

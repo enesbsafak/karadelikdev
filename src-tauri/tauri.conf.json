@@ -34,7 +34,7 @@
     "publisher": "enesbsafak",
     "copyright": "© 2026 enesbsafak · MIT",
     "homepage": "https://github.com/enesbsafak/karadelikdev",
-    "shortDescription": "Windows için yerel geliştirme ortamı",
+    "shortDescription": "Local development environment for Windows and macOS",
     "windows": {
       "nsis": {
         "installMode": "perMachine",

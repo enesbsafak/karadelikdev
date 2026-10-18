@@ -15,7 +15,7 @@ const PLATFORM_SUFFIX: Option<&str> = if cfg!(target_os = "macos") { Some(".mac"
 
 pub fn t(key: &str) -> String {
     let lang = crate::kcore::settings().language;
-    let primary = if lang == "en" { &*EN } else { &*TR };
+    let primary = if lang == "tr" { &*TR } else { &*EN };
     if let Some(sfx) = PLATFORM_SUFFIX {
         let k = format!("{key}{sfx}");
         if let Some(v) = primary.get(&k).or_else(|| EN.get(&k)) {
@@ -36,7 +36,7 @@ pub fn tf(key: &str, args: &[&str]) -> String {
 
 pub fn table(lang: &str) -> HashMap<String, String> {
     let mut m = EN.clone();
-    if lang != "en" {
+    if lang == "tr" {
         m.extend(TR.clone());
     }
     if let Some(sfx) = PLATFORM_SUFFIX {

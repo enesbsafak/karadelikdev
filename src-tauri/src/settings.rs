@@ -89,7 +89,8 @@ fn default_services() -> BTreeMap<String, SvcCfg> {
 impl Settings {
     pub fn defaults(paths: &Paths) -> Settings {
         Settings {
-            language: "tr".into(),
+            // Yalnız ilk açılışta geçerli; seçilen dil karadelik.ini'ye yazılır
+            language: if crate::platform::system_language_is_turkish() { "tr" } else { "en" }.into(),
             run_at_startup: false,
             run_minimized: false,
             auto_start: false,

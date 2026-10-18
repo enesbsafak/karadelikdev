@@ -19,6 +19,18 @@ pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
+/// Sistem dillerinin ilki Türkçe mi (ilk açılışta uygulama dilini seçmek için).
+pub fn system_language_is_turkish() -> bool {
+    // `defaults read -g AppleLanguages`: ( "tr-TR", "en-US" )
+    let mut c = Command::new("/usr/bin/defaults");
+    c.args(["read", "-g", "AppleLanguages"]);
+    run_capture(c)
+        .ok()
+        .and_then(|(code, out)| (code == 0).then_some(out))
+        .and_then(|out| out.split('"').nth(1).map(|l| l.to_lowercase().starts_with("tr")))
+        .unwrap_or(false)
+}
+
 /// Kurulumlu sürümde veri klasörünün varsayılanı (boşluksuz; Apache/MySQL boşluklu yollarla sorun çıkarır).
 pub fn default_data_root() -> PathBuf {
     home().join("KaradelikDev")
