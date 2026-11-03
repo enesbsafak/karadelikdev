@@ -687,27 +687,42 @@ mod tests {
         assert!(rolling("https://nginx.org/download/nginx-1.30.6.zip").is_none());
     }
 
-    /// Ağ gerektirir: `cargo test -- --ignored rolling_sources_resolve`
+    /// Ağ gerektirir: `cargo test --lib -- --ignored rolling_sources_resolve`
+    /// (haftalık CI: .github/workflows/url-check.yml). Varsayılan packages.conf'taki PHP ve Apache adresleri
+    /// ile kaldırılmış eski adresler, kaynağın güncel ve indirilebilir derlemesine çözülmeli.
     #[test]
     #[ignore]
     fn rolling_sources_resolve() {
-        for url in [
+        let defaults = include_str!("../resources/defaults/packages.conf");
+        let mut urls: Vec<&str> = defaults
+            .lines()
+            .filter_map(|l| l.split_once('=').map(|(_, u)| u.trim()))
+            .filter(|u| rolling(u).is_some())
+            .collect();
+        assert!(urls.len() >= 5, "packages.conf'ta PHP/Apache adresi bulunamadı");
+        let removed = [
             "https://windows.php.net/downloads/releases/php-8.4.26-Win32-vs17-x64.zip",
             "https://windows.php.net/downloads/releases/php-8.4.26-nts-Win32-vs17-x64.zip",
-            "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip",
-            // Kaldırılmış eski derleme: sayfadaki güncel derlemeye çözülmeli
             "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.60-240701-Win64-VS17.zip",
-        ] {
+        ];
+        urls.extend(removed);
+        let mut failed = Vec::new();
+        for url in urls {
             let (src, b) = rolling(url).unwrap();
             let c = src.candidates(url, &b.tag);
             println!("{url}\n  -> {c:?}");
             let first = &c[0].0;
-            // PHP: releases.json'dan SHA-256'lı güncel derleme; eski Apache: sayfadan farklı (yeni) derleme
-            let resolved = if src == Rolling::PhpWin { c[0].1.is_some() } else { !url.contains("2.4.60") || first != url };
-            assert!(resolved, "güncel derleme bulunamadı");
+            // PHP: releases.json'dan SHA-256'lı derleme; kaldırılmış Apache: sayfadan farklı (yeni) derleme
+            let resolved = match src {
+                Rolling::PhpWin => c[0].1.is_some(),
+                Rolling::ApacheLounge => !removed.contains(&url) || first != url,
+            };
             let code = ureq::head(first).header("User-Agent", UA).call().map(|r| r.status().as_u16()).unwrap_or(0);
-            assert_eq!(code, 200, "{first}");
-            assert_eq!(src.build(&strip_archive_ext(&url_file_name(first))).unwrap().tag, b.tag);
+            let same_branch = src.build(&strip_archive_ext(&url_file_name(first))).is_some_and(|x| x.tag == b.tag);
+            if !resolved || code != 200 || !same_branch {
+                failed.push(format!("{url} -> {first} (çözüldü: {resolved}, HTTP {code}, aynı dal: {same_branch})"));
+            }
         }
+        assert!(failed.is_empty(), "çözülemeyen adresler:\n{}", failed.join("\n"));
     }
 }
