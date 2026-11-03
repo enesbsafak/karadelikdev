@@ -162,7 +162,18 @@ pub fn list() -> Vec<Package> {
         if name.is_empty() || !(url.starts_with("http") || url.starts_with("brew:")) {
             continue;
         }
-        let dest = dest_for(&name, &url);
+        let mut dest = dest_for(&name, &url);
+        // PHP ve Apache: aynı dalın (ör. PHP 8.4 TS vs17) herhangi bir yaması kuruluysa paket kurulu sayılır;
+        // kurulum güncel yamayı indirdiği için klasör adı packages.conf'takiyle aynı olmayabilir.
+        if let Some((src, b)) = rolling(&url) {
+            if let Some(f) = crate::versions::installed(src.cat())
+                .into_iter()
+                .filter_map(|f| src.build(&f).filter(|x| x.tag == b.tag).map(|x| (x.patch, f)))
+                .max()
+            {
+                dest = paths().bin().join(src.cat()).join(f.1);
+            }
+        }
         let installed = dest.exists() && (!url.starts_with("brew:") || brew_link(&category(&name).0, &url[5..]).is_some());
         out.push(Package { name, url, group: group.clone(), dest, installed, recommended });
     }
@@ -462,10 +473,139 @@ fn brew_prefix_any() -> Option<PathBuf> {
     None
 }
 
+// ---------------------------------------------------------------- Güncel derlemesi aranan kaynaklar (PHP, Apache)
+
+/// PHP'nin Windows derlemeleri (windows.php.net/downloads/releases buraya yönlendiriyor).
+pub const PHP_WIN: &str = "https://downloads.php.net/~windows/releases";
+
+/// Derleme klasörü/dosya adının çözümlemesi (PHP ve Apache).
+#[derive(Debug, PartialEq)]
+pub struct Build {
+    /// `8.4-ts-vs17-x64`: alt sürüm, iş parçacığı güvenliği, derleyici, mimari.
+    pub tag: String,
+    /// (yama, yeniden derleme): `8.4.27-1` -> (27, 1), `8.4.26` -> (26, 0).
+    pub patch: (u32, u32),
+}
+
+/// `php-8.4.27-1-nts-Win32-vs17-x64` (veya `.zip` uzantılı) -> etiket ve yama.
+pub fn php_build(folder: &str) -> Option<Build> {
+    let re = regex::Regex::new(r"(?i)^php-(\d+\.\d+)\.(\d+)(?:-(\d+))?(-nts)?-Win32-(v[cs]\d+)-(x64|x86)$").unwrap();
+    let c = re.captures(folder)?;
+    let ts = if c.get(4).is_some() { "nts" } else { "ts" };
+    let patch = (c[2].parse().ok()?, c.get(3).map_or(Some(0), |m| m.as_str().parse().ok())?);
+    Some(Build { tag: format!("{}-{ts}-{}-{}", &c[1], c[5].to_lowercase(), c[6].to_lowercase()), patch })
+}
+
+/// releases.json'daki sürüm metni: `8.4.27-1` -> (27, 1).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn php_patch_of(version: &str) -> (u32, u32) {
+    let last = version.splitn(3, '.').nth(2).unwrap_or("");
+    let (p, b) = last.split_once('-').unwrap_or((last, "0"));
+    (p.parse().unwrap_or(0), b.parse().unwrap_or(0))
+}
+
+/// `httpd-2.4.69-261002-Win64-VS18` -> etiket `2.4-win64`, yama (69, 261002).
+fn apache_build(folder: &str) -> Option<Build> {
+    let re = regex::Regex::new(r"(?i)^httpd-(\d+\.\d+)\.(\d+)-(\d+)-(win64|win32)-(v[cs]\d+)$").unwrap();
+    let c = re.captures(folder)?;
+    Some(Build { tag: format!("{}-{}", &c[1], c[4].to_lowercase()), patch: (c[2].parse().ok()?, c[3].parse().ok()?) })
+}
+
+const APACHE_LOUNGE: &str = "https://www.apachelounge.com";
+
+/// Dosyaları sabit adreste kalmayan kaynaklar: yeni yama çıkınca eski dosya kaldırılır veya taşınır,
+/// packages.conf'taki (kullanıcının veri dizinine bir kez kopyalanan) adres 404 verir.
+/// Bunlar için kurulumda kaynağın güncel derlemesi aranır.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Rolling {
+    /// downloads.php.net/~windows (eski adı windows.php.net): yeni yamada eski dosya archives/'a taşınır.
+    PhpWin,
+    /// Apache Lounge yalnız son derlemeyi tutar.
+    ApacheLounge,
+}
+
+impl Rolling {
+    fn cat(self) -> &'static str {
+        match self {
+            Rolling::PhpWin => "php",
+            Rolling::ApacheLounge => "apache",
+        }
+    }
+
+    fn build(self, folder: &str) -> Option<Build> {
+        match self {
+            Rolling::PhpWin => php_build(folder),
+            Rolling::ApacheLounge => apache_build(folder),
+        }
+    }
+
+    /// Denenecek (adres, SHA-256) çiftleri, sırayla: önce kaynağın güncel derlemesi, sonra packages.conf'taki dosya.
+    fn candidates(self, url: &str, tag: &str) -> Vec<(String, Option<String>)> {
+        let file = url_file_name(url);
+        let mut out = Vec::new();
+        match self {
+            Rolling::PhpWin => {
+                // Ömrü biten alt sürümler releases.json'dan kalkar; archives/ çıkan her derlemeyi tutar.
+                let (minor, key) = tag.split_once('-').unwrap_or((tag, ""));
+                if let Ok(rel) = fetch_text(&format!("{PHP_WIN}/releases.json")).and_then(|b| Ok(serde_json::from_str::<serde_json::Value>(&b)?)) {
+                    let zip = &rel[minor][key]["zip"];
+                    if let Some(path) = zip["path"].as_str().filter(|p| !p.contains(['/', '\\'])) {
+                        out.push((format!("{PHP_WIN}/{path}"), zip["sha256"].as_str().map(str::to_string)));
+                    }
+                }
+                out.push((format!("{PHP_WIN}/{file}"), None));
+                out.push((format!("{PHP_WIN}/archives/{file}"), None));
+            }
+            Rolling::ApacheLounge => {
+                if let Ok(page) = fetch_text(&format!("{APACHE_LOUNGE}/download/")) {
+                    let re = regex::Regex::new(r#"(?i)href="(/download/VS\d+/binaries/(httpd-[0-9.]+-\d+-win(?:64|32)-vs\d+)\.zip)""#).unwrap();
+                    let best = re
+                        .captures_iter(&page)
+                        .filter_map(|c| apache_build(&c[2]).filter(|b| b.tag == tag).map(|b| (b.patch, c[1].to_string())))
+                        .max();
+                    if let Some((_, path)) = best {
+                        out.push((format!("{APACHE_LOUNGE}{path}"), None));
+                    }
+                }
+                out.push((url.to_string(), None));
+            }
+        }
+        out.dedup();
+        out
+    }
+}
+
+/// Bağlantı güncel derlemesi aranacak bir kaynaktan mı? (kaynak, packages.conf'taki derleme)
+fn rolling(url: &str) -> Option<(Rolling, Build)> {
+    let l = url.to_lowercase();
+    let src = if l.contains("windows.php.net/downloads/releases/") || l.contains("downloads.php.net/~windows/releases/") {
+        Rolling::PhpWin
+    } else if l.starts_with("https://www.apachelounge.com/download/") {
+        Rolling::ApacheLounge
+    } else {
+        return None;
+    };
+    Some((src, src.build(&strip_archive_ext(&url_file_name(url)))?))
+}
+
 pub fn install(name: &str) -> Result<PathBuf> {
     let pkg = list().into_iter().find(|p| p.name == name).ok_or_else(|| anyhow!("{name}?"))?;
     if pkg.installed {
         bail!(tf("msg.already_installed", &[&pkg.name]));
+    }
+    if let Some((src, b)) = rolling(&pkg.url) {
+        let mut last = None;
+        for (url, sha) in src.candidates(&pkg.url, &b.tag) {
+            let dest = paths().bin().join(src.cat()).join(strip_archive_ext(&url_file_name(&url)));
+            match fetch_into(&url, &dest, &pkg.name, None, sha.as_deref()) {
+                Ok(()) => return Ok(dest),
+                Err(e) => {
+                    crate::kcore::log(&format!("{}: {e:#}", pkg.name));
+                    last = Some(e);
+                }
+            }
+        }
+        return Err(last.unwrap_or_else(|| anyhow!(t("msg.download_error"))));
     }
     if let Some(formula) = pkg.url.strip_prefix("brew:") {
         let dest = brew_install(&category(&pkg.name).0, formula, &pkg.name)?;
@@ -517,5 +657,57 @@ mod tests {
         assert_eq!(url_file_name("https://x/y/getfile.jsp?fileid=1"), "getfile.jsp");
         assert_eq!(category("mariadb-11.4").0, "mysql");
         assert_eq!(category("node-24.22").0, "nodejs");
+    }
+
+    #[test]
+    fn php_windows_builds() {
+        let b = php_build("php-8.4.27-1-nts-Win32-vs17-x64").unwrap();
+        assert_eq!(b.tag, "8.4-nts-vs17-x64");
+        assert_eq!(b.patch, (27, 1));
+        assert_eq!(php_build("php-8.4.26-Win32-vs17-x64").unwrap().patch, (26, 0));
+        assert_eq!(php_build("php-8.4"), None);
+        assert_eq!(php_patch_of("8.4.27-1"), (27, 1));
+        assert_eq!(php_patch_of("8.3.35"), (35, 0));
+        assert!(php_patch_of("8.4.27-1") > (27, 0));
+        let old = "https://windows.php.net/downloads/releases/php-8.4.26-Win32-vs17-x64.zip";
+        assert_eq!(rolling(old).unwrap().1.tag, "8.4-ts-vs17-x64");
+        let new = "https://downloads.php.net/~windows/releases/archives/php-8.2.34-nts-Win32-vs16-x64.zip";
+        assert_eq!(rolling(new).unwrap(), (Rolling::PhpWin, php_build("php-8.2.34-nts-Win32-vs16-x64").unwrap()));
+        assert!(rolling("https://example.com/php-8.4.26-Win32-vs17-x64.zip").is_none());
+    }
+
+    #[test]
+    fn apache_lounge_builds() {
+        let b = apache_build("httpd-2.4.69-261002-Win64-VS18").unwrap();
+        assert_eq!(b.tag, "2.4-win64");
+        assert_eq!(b.patch, (69, 261002));
+        assert!(apache_build("httpd-2.4.70-261115-Win64-VS18").unwrap().patch > b.patch);
+        let url = "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip";
+        assert_eq!(rolling(url).unwrap().0, Rolling::ApacheLounge);
+        assert!(rolling("https://nginx.org/download/nginx-1.30.6.zip").is_none());
+    }
+
+    /// Ağ gerektirir: `cargo test -- --ignored rolling_sources_resolve`
+    #[test]
+    #[ignore]
+    fn rolling_sources_resolve() {
+        for url in [
+            "https://windows.php.net/downloads/releases/php-8.4.26-Win32-vs17-x64.zip",
+            "https://windows.php.net/downloads/releases/php-8.4.26-nts-Win32-vs17-x64.zip",
+            "https://www.apachelounge.com/download/VS18/binaries/httpd-2.4.69-261002-Win64-VS18.zip",
+            // Kaldırılmış eski derleme: sayfadaki güncel derlemeye çözülmeli
+            "https://www.apachelounge.com/download/VS17/binaries/httpd-2.4.60-240701-Win64-VS17.zip",
+        ] {
+            let (src, b) = rolling(url).unwrap();
+            let c = src.candidates(url, &b.tag);
+            println!("{url}\n  -> {c:?}");
+            let first = &c[0].0;
+            // PHP: releases.json'dan SHA-256'lı güncel derleme; eski Apache: sayfadan farklı (yeni) derleme
+            let resolved = if src == Rolling::PhpWin { c[0].1.is_some() } else { !url.contains("2.4.60") || first != url };
+            assert!(resolved, "güncel derleme bulunamadı");
+            let code = ureq::head(first).header("User-Agent", UA).call().map(|r| r.status().as_u16()).unwrap_or(0);
+            assert_eq!(code, 200, "{first}");
+            assert_eq!(src.build(&strip_archive_ext(&url_file_name(first))).unwrap().tag, b.tag);
+        }
     }
 }

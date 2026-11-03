@@ -158,29 +158,24 @@ pub fn check_php_updates(install: bool) -> Result<Vec<String>> {
     Ok(list)
 }
 
-/// Kurulu her PHP alt sürümü (8.3, 8.4...) için windows.php.net'te daha yenisi var mı?
+/// Kurulu her PHP alt sürümü (8.3, 8.4...) için downloads.php.net'te daha yenisi var mı?
 /// `install` true ise indirip bin\php altına ekler (profil değiştirilmez, Laragon ile aynı).
 #[cfg(windows)]
 pub fn check_php_updates(install: bool) -> Result<Vec<String>> {
-    let body = crate::packages::fetch_text("https://windows.php.net/downloads/releases/releases.json")?;
+    use crate::packages::{php_build, php_patch_of, PHP_WIN};
+    let body = crate::packages::fetch_text(&format!("{PHP_WIN}/releases.json"))?;
     let rel: serde_json::Value = serde_json::from_str(&body)?;
-    let re = regex::Regex::new(r"(?i)^php-(\d+)\.(\d+)\.(\d+)(-nts)?-Win32-(v[cs]\d+)-x64$").unwrap();
     let installed = crate::versions::installed("php");
     let mut out = Vec::new();
     for folder in &installed {
-        let Some(c) = re.captures(folder) else { continue };
-        let minor = format!("{}.{}", &c[1], &c[2]);
-        let patch: u32 = c[3].parse().unwrap_or(0);
-        let nts = c.get(4).is_some();
-        let vs = c[5].to_lowercase();
-        let Some(entry) = rel.get(&minor) else { continue };
+        let Some(b) = php_build(folder) else { continue };
+        let (minor, key) = b.tag.split_once('-').unwrap_or((&b.tag, ""));
+        let Some(entry) = rel.get(minor) else { continue };
         let latest = entry["version"].as_str().unwrap_or("");
-        let latest_patch: u32 = latest.rsplit('.').next().and_then(|p| p.parse().ok()).unwrap_or(0);
-        if latest_patch <= patch {
+        if php_patch_of(latest) <= b.patch {
             continue;
         }
-        let key = format!("{}-{vs}-x64", if nts { "nts" } else { "ts" });
-        let Some(zip) = entry[&key]["zip"]["path"].as_str() else { continue };
+        let Some(zip) = entry[key]["zip"]["path"].as_str().filter(|p| !p.contains(['/', '\\'])) else { continue };
         let name = zip.trim_end_matches(".zip").to_string();
         if installed.iter().any(|i| i.eq_ignore_ascii_case(&name)) {
             continue;
@@ -189,9 +184,9 @@ pub fn check_php_updates(install: bool) -> Result<Vec<String>> {
             out.push(tf("msg.update_available", &["PHP", latest]));
             continue;
         }
-        let url = format!("https://windows.php.net/downloads/releases/{zip}");
+        let url = format!("{PHP_WIN}/{zip}");
         let dest = paths().bin().join("php").join(&name);
-        crate::packages::fetch_into(&url, &dest, &name, None, entry[&key]["zip"]["sha256"].as_str())?;
+        crate::packages::fetch_into(&url, &dest, &name, None, entry[key]["zip"]["sha256"].as_str())?;
         log(&format!("PHP {latest} indirildi ve SHA-256 doğrulandı"));
         out.push(tf("msg.update_added", &["PHP", latest]));
     }

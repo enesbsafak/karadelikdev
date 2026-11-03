@@ -74,10 +74,7 @@ const PECL_WIN: &str = "https://downloads.php.net/~windows/pecl/releases";
 /// Derleme etiketi, ör. `8.4-ts-vs17-x64`: PECL zip adlarındaki PHP sürümü, iş parçacığı güvenliği ve derleyici.
 #[cfg(windows)]
 pub fn build_tag(folder: &str) -> Option<String> {
-    let re = regex::Regex::new(r"(?i)^php-(\d+\.\d+)\.\d+(-nts)?-Win32-(v[cs]\d+)-(x64|x86)$").unwrap();
-    let c = re.captures(folder)?;
-    let ts = if c.get(2).is_some() { "nts" } else { "ts" };
-    Some(format!("{}-{ts}-{}-{}", &c[1], c[3].to_lowercase(), c[4].to_lowercase()))
+    crate::packages::php_build(folder).map(|b| b.tag)
 }
 
 /// Dizin listesindeki kararlı sürümler (RC/beta hariç), yeniden eskiye.
@@ -200,6 +197,7 @@ mod tests {
         assert_eq!(build_tag("php-8.4.26-Win32-vs17-x64").as_deref(), Some("8.4-ts-vs17-x64"));
         assert_eq!(build_tag("php-8.4.26-nts-Win32-vs17-x64").as_deref(), Some("8.4-nts-vs17-x64"));
         assert_eq!(build_tag("php-7.4.33-Win32-vc15-x64").as_deref(), Some("7.4-ts-vc15-x64"));
+        assert_eq!(build_tag("php-8.4.27-1-nts-Win32-vs17-x64").as_deref(), Some("8.4-nts-vs17-x64"));
         assert_eq!(build_tag("php-8.3"), None);
     }
 
